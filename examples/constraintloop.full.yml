@@ -1,0 +1,84 @@
+version: 1
+settings:
+  max_auto_retries: 2
+  concurrency: 4
+  evidence_output_limit: 65536
+  evaluation_bundle_limit: 102400
+
+constraints:
+  unit_tests:
+    kind: command
+    description: Unit test suite
+    command: [python, -m, pytest, -q]
+    phases: [stop, ci]
+    watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
+
+  coverage:
+    kind: metric
+    description: Enforce a measured coverage floor
+    command:
+      [python, -m, pytest, --cov, "--cov-report=json:coverage.json"]
+    parser:
+      type: json
+      source: file
+      file: coverage.json
+      path: totals.percent_covered
+    threshold:
+      operator: gte
+      value: 85
+    needs: [unit_tests]
+    phases: [stop, ci]
+    watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
+
+  junit_evidence:
+    kind: artifact
+    path: test-results.xml
+    format: junit
+    non_empty: true
+    needs: [unit_tests]
+    phases: [ci]
+    watch: [test-results.xml]
+
+  maintainability:
+    kind: rubric
+    enforcement: advisory
+    evaluator: local_reviewer
+    rubric: >
+      Fail only for a concrete maintainability regression introduced by the
+      patch. Cite the file and explain the smallest useful correction.
+    include: ["src/**/*.py"]
+    runs: 1
+    phases: [stop, ci]
+    watch: ["src/**/*.py"]
+
+  acceptance:
+    kind: rubric
+    enforcement: required
+    evaluator: local_reviewer
+    rubric: >
+      The implementation must satisfy every behavior named in the task goal.
+      Fail with a concrete missing or contradictory behavior.
+    include: ["src/**/*.py", "tests/**/*.py"]
+    runs: 3
+    pass_quorum: 2
+    needs: [unit_tests]
+    phases: [stop, ci]
+    watch: ["src/**/*.py", "tests/**/*.py"]
+
+evaluators:
+  local_reviewer:
+    type: command
+    command: [company-quality-evaluator]
+    timeout_seconds: 60
+
+loops:
+  completion:
+    phase: stop
+    interval_seconds: 10
+    max_repair_attempts: 3
+    max_unchanged_repairs: 2
+    max_duration_seconds: 1200
+    on_pass: stop
+    on_failure: repair
+    on_pending: wait
+    on_budget_exhausted: human_required

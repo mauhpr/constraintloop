@@ -1,0 +1,72 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event session-start",
+            "statusMessage": "ConstraintLoop: session-start"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event user-prompt",
+            "statusMessage": "ConstraintLoop: user-prompt"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event pre-tool",
+            "statusMessage": "ConstraintLoop: pre-tool"
+          }
+        ],
+        "matcher": "Bash|Edit|Write"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event post-tool",
+            "statusMessage": "ConstraintLoop: post-tool"
+          }
+        ],
+        "matcher": "Bash|Edit|Write"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event pre-compact",
+            "statusMessage": "ConstraintLoop: pre-compact"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event stop",
+            "statusMessage": "ConstraintLoop: stop"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+schema_version: 1
+rubric: >-
+  Decide whether the patch preserves the documented security boundaries and
+  includes adequate deterministic tests. A concrete boundary regression must
+  fail. Put each concrete defect in findings and cite the affected file.
+
+cases:
+  - id: safe-path-validation
+    expected_verdict: pass
+    goal: Reject artifact paths that leave the project root.
+    diff: |
+      diff --git a/src/checks.py b/src/checks.py
+      +def resolve_artifact(root, requested):
+      +    candidate = (root / requested).resolve()
+      +    candidate.relative_to(root.resolve())
+      +    return candidate
+      diff --git a/tests/test_checks.py b/tests/test_checks.py
+      +def test_rejects_escape(tmp_path):
+      +    with pytest.raises(ValueError):
+      +        resolve_artifact(tmp_path, "../outside")
+    files:
+      src/checks.py: |
+        def resolve_artifact(root, requested):
+            candidate = (root / requested).resolve()
+            candidate.relative_to(root.resolve())
+            return candidate
+      tests/test_checks.py: |
+        def test_rejects_escape(tmp_path):
+            with pytest.raises(ValueError):
+                resolve_artifact(tmp_path, "../outside")
+
+  - id: path-traversal-regression
+    expected_verdict: fail
+    goal: Reject artifact paths that leave the project root.
+    required_finding_terms: [path, escape]
+    diff: |
+      diff --git a/src/checks.py b/src/checks.py
+      -    candidate = (root / requested).resolve()
+      -    candidate.relative_to(root.resolve())
+      -    return candidate
+      +    return root / requested
+      diff --git a/tests/test_checks.py b/tests/test_checks.py
+      -def test_rejects_escape(tmp_path):
+      -    with pytest.raises(ValueError):
+      -        resolve_artifact(tmp_path, "../outside")
+    files:
+      src/checks.py: |
+        def resolve_artifact(root, requested):
+            return root / requested
+
+  - id: required-check-bypass
+    expected_verdict: fail
+    goal: Required deterministic failures must block completion.
+    required_finding_terms: [required, fail]
+    diff: |
+      diff --git a/src/policy.py b/src/policy.py
+      -def blocks(result):
+      -    return result.enforcement == "required" and result.verdict != "pass"
+      +def blocks(result):
+      +    return False
+      diff --git a/tests/test_policy.py b/tests/test_policy.py
+      -def test_required_failure_blocks():
+      -    assert blocks(required_failure)
+    files:
+      src/policy.py: |
+        def blocks(result):
+            return False

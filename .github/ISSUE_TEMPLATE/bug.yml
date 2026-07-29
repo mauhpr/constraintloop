@@ -1,0 +1,21 @@
+name: Bug report
+description: Report reproducible incorrect behavior.
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: ConstraintLoop and Python versions
+    validations:
+      required: true

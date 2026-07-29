@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --extra dev
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest --cov=constraintloop --cov-branch --cov-report=json:coverage.json --cov-report=xml:coverage.xml
+      - run: uv run python scripts/check_coverage.py coverage.json
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: unittests
+          name: constraintloop-coverage
+          fail_ci_if_error: false
+      - run: uv build
+
+  compatibility:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --extra dev
+      - run: uv run pytest -q
+
+  openai-sdk-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+      - run: uv venv --seed .sdk-min
+      - run: uv pip install --python .sdk-min/bin/python -e . "openai==2.0.0"
+      - run: .sdk-min/bin/python scripts/check_openai_sdk.py
+      - run: uv venv --seed .sdk-latest
+      - run: uv pip install --python .sdk-latest/bin/python -e ".[openai]" --upgrade
+      - run: .sdk-latest/bin/python scripts/check_openai_sdk.py
+
+  anthropic-sdk-compatibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+      - run: uv venv --seed .anthropic-min
+      - run: uv pip install --python .anthropic-min/bin/python -e . "anthropic==0.40.0"
+      - run: .anthropic-min/bin/python scripts/check_anthropic_sdk.py
+      - run: uv venv --seed .anthropic-latest
+      - run: uv pip install --python .anthropic-latest/bin/python -e ".[anthropic]" --upgrade
+      - run: .anthropic-latest/bin/python scripts/check_anthropic_sdk.py
+
+  wheel-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+      - run: uv build --wheel
+      - run: uv venv --seed .wheel-venv
+      - run: uv pip install --python .wheel-venv/bin/python dist/*.whl
+      - run: .wheel-venv/bin/constraintloop --version
+      - run: mkdir -p "$RUNNER_TEMP/smoke"
+      - run: .wheel-venv/bin/constraintloop init --project "$RUNNER_TEMP/smoke"
+      - run: .wheel-venv/bin/constraintloop doctor --project "$RUNNER_TEMP/smoke"
+      - run: .wheel-venv/bin/python scripts/wheel_failure_smoke.py .wheel-venv/bin/constraintloop
+
+  sdist-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+      - run: uv build --sdist
+      - run: uv run python scripts/check_sdist_contents.py dist/*.tar.gz
+      - run: uv venv --seed .sdist-venv
+      - run: uv pip install --python .sdist-venv/bin/python dist/*.tar.gz
+      - run: .sdist-venv/bin/constraintloop --version

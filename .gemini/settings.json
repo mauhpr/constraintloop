@@ -1,0 +1,78 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter gemini --event session-start",
+            "statusMessage": "ConstraintLoop: session-start",
+            "name": "constraintloop-session-start"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter gemini --event user-prompt",
+            "statusMessage": "ConstraintLoop: user-prompt",
+            "name": "constraintloop-user-prompt"
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter gemini --event pre-tool",
+            "statusMessage": "ConstraintLoop: pre-tool",
+            "name": "constraintloop-pre-tool"
+          }
+        ],
+        "matcher": "run_shell_command|write_file|replace"
+      }
+    ],
+    "AfterTool": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter gemini --event post-tool",
+            "statusMessage": "ConstraintLoop: post-tool",
+            "name": "constraintloop-post-tool"
+          }
+        ],
+        "matcher": "run_shell_command|write_file|replace"
+      }
+    ],
+    "PreCompress": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter gemini --event pre-compact",
+            "statusMessage": "ConstraintLoop: pre-compact",
+            "name": "constraintloop-pre-compact"
+          }
+        ]
+      }
+    ],
+    "AfterAgent": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter gemini --event stop",
+            "statusMessage": "ConstraintLoop: stop",
+            "name": "constraintloop-stop"
+          }
+        ]
+      }
+    ]
+  }
+}

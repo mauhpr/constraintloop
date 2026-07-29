@@ -1,0 +1,15 @@
+name: Feature proposal
+description: Propose a scoped improvement.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and evidence
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Proposed scope and product-boundary impact
+    validations:
+      required: true

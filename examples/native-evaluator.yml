@@ -1,0 +1,19 @@
+version: 1
+
+constraints:
+  native_review:
+    kind: rubric
+    enforcement: advisory
+    evaluator: native_agent
+    rubric: >-
+      Fail for a concrete regression in the patch or a violation of the task
+      boundary. Cite each affected file and recommend the smallest correction.
+    include: ["src/**/*.py", "tests/**/*.py"]
+    runs: 1
+    phases: [stop]
+
+evaluators:
+  native_agent:
+    type: command
+    command: [constraintloop-native-evaluator, --adapter, auto]
+    timeout_seconds: 180

@@ -1,0 +1,72 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event session-start --project /Users/maupr92/Projects/constraintloop",
+            "statusMessage": "ConstraintLoop: session-start"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event user-prompt --project /Users/maupr92/Projects/constraintloop",
+            "statusMessage": "ConstraintLoop: user-prompt"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event pre-tool --project /Users/maupr92/Projects/constraintloop",
+            "statusMessage": "ConstraintLoop: pre-tool"
+          }
+        ],
+        "matcher": "Bash|Edit|Write"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event post-tool --project /Users/maupr92/Projects/constraintloop",
+            "statusMessage": "ConstraintLoop: post-tool"
+          }
+        ],
+        "matcher": "Bash|Edit|Write"
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event pre-compact --project /Users/maupr92/Projects/constraintloop",
+            "statusMessage": "ConstraintLoop: pre-compact"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event stop --project /Users/maupr92/Projects/constraintloop",
+            "statusMessage": "ConstraintLoop: stop"
+          }
+        ]
+      }
+    ]
+  }
+}

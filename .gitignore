@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.coverage
+coverage.json
+coverage.xml
+htmlcov/
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.ruff_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+.constraintloop/

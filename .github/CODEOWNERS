@@ -1,0 +1,7 @@
+* @mauhpr
+
+/constraintloop.yml @mauhpr
+/.github/workflows/ @mauhpr
+/src/constraintloop/hooks.py @mauhpr
+/src/constraintloop/models.py @mauhpr
+/src/constraintloop/native_cli_evaluator.py @mauhpr
