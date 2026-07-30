@@ -1,0 +1,38 @@
+version: 1
+
+settings:
+  max_auto_retries: 2
+  concurrency: 4
+
+constraints:
+  python_syntax:
+    kind: command
+    description: Compile Python sources after edits
+    command: [python, -m, compileall, -q, src, tests]
+    phases: [change, stop, ci]
+    watch: ["src/**/*.py", "tests/**/*.py"]
+
+  tests:
+    kind: command
+    description: Run unit tests before completion
+    command: [python, -m, pytest, -q]
+    phases: [stop, ci]
+    watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml, uv.lock]
+    needs: [python_syntax]
+
+  coverage:
+    kind: metric
+    description: Require at least 85 percent statement coverage
+    command:
+      [python, -m, pytest, "--cov=src", "--cov-report=json:coverage.json"]
+    parser:
+      type: json
+      source: file
+      file: coverage.json
+      path: totals.percent_covered
+    threshold:
+      operator: gte
+      value: 85
+    phases: [stop, ci]
+    watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml, uv.lock]
+    needs: [tests]

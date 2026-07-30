@@ -159,12 +159,9 @@ prompt that tells the native agent to:
 5. stop on `passed`, `human_required`, `budget_exhausted`, or `error`;
 6. never edit the contract or create a waiver.
 
-For Claude Code, `constraintloop setup-loop NAME --adapter claude` may also
-write `.claude/loop.md`. The user can start it with `/loop` or `/loop 2m`.
-
-For Codex, the generated prompt can be used in a same-chat scheduled task or a
-project scheduled task. ConstraintLoop will not attempt to create account-level
-scheduled tasks itself.
+The generated prompt can be copied into a native Claude Code or Codex loop. It
+is provider-neutral except for adapter-specific command framing. ConstraintLoop
+does not create account-level scheduled tasks or launch either provider CLI.
 
 ## Snapshot and accounting rules
 

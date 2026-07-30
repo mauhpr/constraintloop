@@ -28,6 +28,47 @@ keeps ConstraintLoop in control of evidence, budgets, and stopping while native
 Claude or Codex loops perform at most one requested repair per transition. See
 [docs/convergence-loops.md](docs/convergence-loops.md).
 
+## At a glance
+
+| Question | ConstraintLoop answer |
+| --- | --- |
+| What decides that work is complete? | Fresh evidence from a committed contract |
+| What can block locally? | Required deterministic failures and undisposed advisory findings |
+| What can block CI? | Every required CI constraint; local caches and waivers are ignored |
+| Does it replace pytest, Ruff, or CI? | No. It turns their outputs into one completion decision |
+| Does it run an autonomous agent? | No. It owns evidence and stopping; native agents own repairs |
+| Can it review design? | Yes, through optional OpenAI, Anthropic, Codex, Claude Code, or command evaluators |
+| Can it loop forever? | No. Every convergence loop has repair, unchanged-result, and time budgets |
+
+```mermaid
+flowchart LR
+    G[User goal] --> A[Coding agent]
+    A --> C[Versioned contract]
+    C --> D[Commands and metrics]
+    C --> R[Optional rubric review]
+    D --> E[Fresh evidence snapshot]
+    R --> E
+    E -->|pass| S[Completion allowed]
+    E -->|fail| F[One focused repair]
+    E -->|pending| W[Wait without repair]
+    F --> A
+    W --> E
+    E -->|budget reached| H[Human decision]
+```
+
+## Choose your path
+
+| I want to… | Start here |
+| --- | --- |
+| Add tests, coverage, and lint gates | [Quick start](#quick-start) and [task-oriented recipes](docs/recipes.md) |
+| Understand when each gate runs | [Lifecycle](#lifecycle) |
+| Configure every schema field | [Configuration reference](docs/configuration.md) |
+| Use Codex or Claude Code for design review | [Native CLI evaluators](docs/native-cli-evaluators.md) |
+| Use OpenAI or Anthropic directly | [Provider privacy](docs/provider-privacy.md) |
+| Add a bounded repair or monitoring loop | [Convergence loops](docs/convergence-loops.md) |
+| Diagnose a failure or stale cache | [FAQ and troubleshooting](docs/faq.md) |
+| Evaluate the security boundary | [Threat model](docs/threat-model.md) |
+
 ## Quick start
 
 ```bash
@@ -44,6 +85,23 @@ constraintloop ci
 `constraintloop init` detects existing Python and Node tooling and writes a
 plain `constraintloop.yml`. It does not install tools or silently invent gates.
 Review and commit the contract.
+
+The five commands above establish this flow:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant A as Agent
+    participant CL as ConstraintLoop
+    participant T as Project tools
+    U->>CL: init + review contract
+    U->>CL: setup hooks
+    A->>CL: run change/stop phase
+    CL->>T: execute ready constraints
+    T-->>CL: exit codes, metrics, artifacts
+    CL-->>A: pass, repair, wait, or escalate
+    CL->>T: ci reruns without cache/waivers
+```
 
 ## Contract
 
@@ -126,11 +184,17 @@ commit a credential file. ConstraintLoop parses the local file as plain
 `KEY=VALUE` data and never evaluates it as shell code. Agent hook writes to this
 file are denied.
 
-This repository dogfoods an advisory `gpt-5-nano` rubric using minimal reasoning
-and strict structured output. Keep probabilistic gates advisory until their
-false-positive and false-negative rates are measured.
+This repository dogfoods an advisory native-agent design rubric. OpenAI and
+Anthropic remain optional provider integrations. Keep probabilistic gates
+advisory until their false-positive and false-negative rates are measured.
 
 ## Lifecycle
+
+| Phase | Typical trigger | Intended work |
+| --- | --- | --- |
+| `change` | After a file-changing tool action | Fast syntax, formatting, or diff checks |
+| `stop` | When the agent attempts to finish | Tests, build checks, and advisory review |
+| `ci` | Protected hosted workflow | Authoritative uncached and waiver-free verification |
 
 1. `SessionStart` tells the coding agent which required gates exist.
 2. The prompt hook records the user's goal as review evidence.
@@ -154,6 +218,18 @@ matched by `watch`. A source change therefore makes old evidence and waivers
 stale without a mutable invalidation list. Local state lives under the
 gitignored `.constraintloop/state` directory; set `CONSTRAINTLOOP_CACHE_DIR` to
 override it.
+
+### Verdicts and what they mean
+
+| Verdict | Meaning | Can complete? |
+| --- | --- | --- |
+| `pass` | Fresh evidence satisfies the constraint | Yes |
+| `fail` | The tool or rubric found a concrete violation | No when required |
+| `pending` | External or delayed evidence is not ready | No |
+| `uncertain` | An evaluator could not produce a reliable verdict | No when required |
+| `error` | ConstraintLoop could not evaluate safely | No |
+| `waived` | A human accepted one exact local deterministic snapshot | Locally only; never in CI |
+| `skipped` | A dependency prevented execution | Only when no required result is missing |
 
 ## Commands
 
@@ -184,6 +260,19 @@ override it.
 `enhance` and `author` intentionally do not install dependencies or modify the
 active contract in v0.1. Their proposal files make the future self-improvement
 path auditable.
+
+## Documentation
+
+| Guide | Contents |
+| --- | --- |
+| [Recipes](docs/recipes.md) | Copyable Python, native-review, CI, and bounded-loop setups |
+| [FAQ](docs/faq.md) | Caching, failure modes, providers, hooks, security, and troubleshooting |
+| [Configuration](docs/configuration.md) | Strict schema, defaults, constraints, evaluators, and loops |
+| [Convergence loops](docs/convergence-loops.md) | State machine, budgets, leases, and native-agent protocol |
+| [Native evaluators](docs/native-cli-evaluators.md) | Codex and Claude Code read-only rubric execution |
+| [Provider privacy](docs/provider-privacy.md) | Data flow, disclosure, credentials, cost, and failure behavior |
+| [Threat model](docs/threat-model.md) | Trusted inputs, controls, residual risks, and non-goals |
+| [Release readiness](docs/release-readiness.md) | Compatibility, quality, security, and publishing gates |
 
 ## Evaluator command protocol
 
@@ -216,5 +305,23 @@ Hooks are policy automation, not a security sandbox. A sufficiently privileged
 agent process can bypass local hooks or alter local files. The trusted boundary
 is a protected, reviewed contract plus an independent CI run. See
 [docs/threat-model.md](docs/threat-model.md).
+
+## Frequently asked questions
+
+**Why not just tell the agent to run tests?** Because a prompt is not durable
+policy. ConstraintLoop records which contract ran, which inputs it covered, and
+whether the evidence is still fresh.
+
+**Why do some constraints run after every action?** Put only fast feedback in
+the `change` phase. Expensive tests and reviews belong in `stop` and `ci`.
+
+**Can I use Codex or Claude Code instead of an API evaluator?** Yes. The native
+evaluator adapter prefers the active supported CLI and remains read-only.
+
+**How do I test failure behavior?** Use deterministic commands or fixtures that
+return known failure, pending, malformed, timeout, or corruption outcomes. Do
+not spend provider quota merely to manufacture an error.
+
+See the complete [FAQ and troubleshooting guide](docs/faq.md).
 
 License: MIT.

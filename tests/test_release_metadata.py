@@ -81,3 +81,17 @@ def test_workflow_actions_are_immutable_and_checkouts_drop_credentials() -> None
         assert refs, f"{workflow_path.name} contains no actions"
         assert all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in refs)
         assert workflow.count("actions/checkout@") == workflow.count("persist-credentials: false")
+
+
+def test_relative_markdown_links_resolve() -> None:
+    root = Path(__file__).parents[1]
+    markdown_link = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+
+    for document in (root / "README.md", *sorted((root / "docs").glob("*.md"))):
+        for target in markdown_link.findall(document.read_text(encoding="utf-8")):
+            if target.startswith(("http://", "https://", "mailto:", "#")):
+                continue
+            relative_target = target.split("#", 1)[0]
+            assert (document.parent / relative_target).resolve().exists(), (
+                f"{document.relative_to(root)} links to missing {target}"
+            )
