@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/mauhpr/constraintloop/actions/workflows/ci.yml/badge.svg)](https://github.com/mauhpr/constraintloop/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/mauhpr/constraintloop/branch/main/graph/badge.svg)](https://codecov.io/gh/mauhpr/constraintloop)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ConstraintLoop is an evidence-based completion gate for AI coding agents. Instead
 of relying on a human to inspect every generated line, it requires the agent's

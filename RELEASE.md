@@ -8,9 +8,8 @@ Never publish from a local machine and never store a PyPI token in GitHub.
 1. Create the public repository as `mauhpr/constraintloop` with `main` as the
    default branch.
 2. Push an initial human-reviewed commit and let every CI job pass.
-3. Create GitHub environments named `testpypi` and `pypi`. Require maintainer
-   approval for `pypi`; restrict both environments to the default branch or
-   protected release tags.
+3. Create a GitHub environment named `pypi`. Require maintainer approval and
+   restrict deployment to protected release tags.
 4. Enable branch protection for `main`:
    - require pull requests and conversation resolution;
    - require every CI job;
@@ -32,14 +31,6 @@ Production PyPI:
 - Workflow: `publish.yml`
 - Environment: `pypi`
 
-TestPyPI:
-
-- Project name: `constraintloop`
-- GitHub owner: `mauhpr`
-- Repository: `constraintloop`
-- Workflow: `test-publish.yml`
-- Environment: `testpypi`
-
 ## Release checklist
 
 1. Prepare a release pull request from `release/vX.Y.Z-description`.
@@ -60,8 +51,8 @@ TestPyPI:
    ```
 
 4. Merge only after the complete GitHub CI matrix passes.
-5. For the first release, run the `Publish to TestPyPI` workflow and verify a
-   clean installation before production.
+5. Confirm the hosted wheel and sdist smoke jobs install and invoke artifacts
+   in clean environments.
 6. Create a GitHub Release targeting the final `main` commit with tag
    `vX.Y.Z`. Publishing the release triggers `publish.yml`.
 7. Confirm the workflow uploaded the single build artifact through OIDC and

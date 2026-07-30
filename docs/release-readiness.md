@@ -12,7 +12,7 @@ ConstraintLoop currently has:
 
 - an MIT license and modern `pyproject.toml` package;
 - a buildable source distribution and universal wheel;
-- 136 passing tests with 90.84% statement and 82.70% branch coverage;
+- 139 passing tests with 90.86% statement and 82.70% branch coverage;
 - strict contract validation and deterministic, rubric, cache, waiver, and hook
   tests;
 - Claude Code, Codex, and Gemini hook configurations;
@@ -22,11 +22,10 @@ ConstraintLoop currently has:
   native prompts, and shared Stop-hook accounting;
 - a self-contract that passes its deterministic gates.
 
-It does not yet have a Git history, hosted repository, or completed
-cross-platform CI runs. Contributor and release workflows, community-health
-files, configuration documentation, provider privacy guidance, deterministic
-failure-laboratory coverage, and the convergence-loop state machine now exist
-locally and await hosted verification.
+The public GitHub repository, protected `main` branch, cross-platform CI,
+community-health files, production `pypi` environment, and pending Trusted
+Publisher are configured. The first production publication and external
+installation verification remain.
 
 The PyPI JSON endpoint for `constraintloop` returned 404 during this assessment,
 so the name appeared unoccupied. A name is not reserved until the project is
@@ -177,7 +176,7 @@ useful but not a v0.1 blocker.
 
 - Build both sdist and wheel in CI.
 - Inspect the contents and install each artifact in a clean environment.
-- Publish first to TestPyPI and run an installation smoke test.
+- Install both locally built artifacts in clean environments before publishing.
 - Publish to PyPI using Trusted Publishing rather than a long-lived PyPI token.
 - Attach PyPI publish attestations/provenance.
 - Generate release notes from the changelog.
@@ -249,7 +248,7 @@ release tag:
 ### Milestone C: public release
 
 1. Run security and compatibility audits.
-2. Test TestPyPI artifacts.
+2. Confirm clean wheel and sdist installation jobs pass.
 3. Configure Trusted Publishing and attestations.
 4. Publish v0.1.0 and verify a clean external installation.
 5. Enable Scorecard and begin OpenSSF baseline self-assessment.
