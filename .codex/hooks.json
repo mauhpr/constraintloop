@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event session-start --project /Users/maupr92/Projects/constraintloop",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter codex --event session-start --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: session-start"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event user-prompt --project /Users/maupr92/Projects/constraintloop",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter codex --event user-prompt --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: user-prompt"
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event pre-tool --project /Users/maupr92/Projects/constraintloop",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter codex --event pre-tool --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: pre-tool"
           }
         ],
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event post-tool --project /Users/maupr92/Projects/constraintloop",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter codex --event post-tool --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: post-tool"
           }
         ],
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event pre-compact --project /Users/maupr92/Projects/constraintloop",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter codex --event pre-compact --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: pre-compact"
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/Users/maupr92/Projects/constraintloop/.venv/bin/constraintloop hook --adapter codex --event stop --project /Users/maupr92/Projects/constraintloop",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter codex --event stop --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: stop"
           }
         ]

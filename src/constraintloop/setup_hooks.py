@@ -62,12 +62,8 @@ def install_hooks(project_root: Path, adapter: str) -> Path:
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise ValueError(f"Existing hooks value is not an object in {path}")
-    executable_path = Path(sys.argv[0]).resolve()
-    if executable_path.name == "__main__.py":
-        executable = f"{shlex.quote(sys.executable)} -m constraintloop"
-    else:
-        executable = shlex.quote(str(executable_path))
-    project_argument = shlex.quote(str(project_root.resolve()))
+    executable = _portable_executable(project_root)
+    project_argument = '"$(git rev-parse --show-toplevel)"'
     for native_event, event in events.items():
         command = (
             f"{executable} hook --adapter {adapter} --event {event} --project {project_argument}"
@@ -94,6 +90,18 @@ def install_hooks(project_root: Path, adapter: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_settings(path, data)
     return path
+
+
+def _portable_executable(project_root: Path) -> str:
+    """Return a hook executable without embedding machine-specific paths."""
+    executable_path = Path(sys.argv[0]).resolve()
+    if executable_path.name == "__main__.py":
+        return "python -m constraintloop"
+    try:
+        relative = executable_path.relative_to(project_root.resolve())
+    except ValueError:
+        return shlex.quote(executable_path.name)
+    return f'"$(git rev-parse --show-toplevel)/{relative.as_posix()}"'
 
 
 def uninstall_hooks(project_root: Path, adapter: str) -> tuple[Path, int]:
