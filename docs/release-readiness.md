@@ -23,13 +23,13 @@ ConstraintLoop currently has:
 - a self-contract that passes its deterministic gates.
 
 The public GitHub repository, protected `main` branch, cross-platform CI,
-community-health files, production `pypi` environment, and pending Trusted
-Publisher are configured. The first production publication and external
-installation verification remain.
+community-health files, production `pypi` environment, and Trusted Publisher
+are configured. Version 0.1.0 was published through that identity,
+both distributions expose PyPI provenance, and a clean public-index install
+passed the CLI initialization and contract-validation smoke test.
 
-The PyPI JSON endpoint for `constraintloop` returned 404 during this assessment,
-so the name appeared unoccupied. A name is not reserved until the project is
-actually registered and published.
+The canonical package page is
+[pypi.org/project/constraintloop](https://pypi.org/project/constraintloop/).
 
 ## v0.1 release gates
 
