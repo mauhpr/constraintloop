@@ -56,18 +56,18 @@ def test_python_module_entrypoint(
     )
 
 
-def test_release_workflows_use_separate_oidc_publish_jobs() -> None:
+def test_release_workflow_uses_oidc_and_verifies_the_tag() -> None:
     root = Path(__file__).parents[1]
     production = (root / ".github/workflows/publish.yml").read_text(encoding="utf-8")
-    test = (root / ".github/workflows/test-publish.yml").read_text(encoding="utf-8")
 
-    for workflow in (production, test):
-        assert "id-token: write" in workflow
-        assert "password:" not in workflow
-        assert "needs: build" in workflow
-        assert "pypa/gh-action-pypi-publish@" in workflow
+    assert "id-token: write" in production
+    assert "password:" not in production
+    assert "needs: build" in production
+    assert "pypa/gh-action-pypi-publish@" in production
     assert "environment:\n      name: pypi" in production
-    assert "environment:\n      name: testpypi" in test
+    assert "GITHUB_REF_NAME" in production
+    assert "--extra openai --extra anthropic" in production
+    assert not (root / ".github/workflows/test-publish.yml").exists()
 
 
 def test_workflow_actions_are_immutable_and_checkouts_drop_credentials() -> None:
