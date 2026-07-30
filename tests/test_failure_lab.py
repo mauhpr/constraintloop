@@ -178,6 +178,8 @@ def test_real_cli_and_hook_subprocesses_report_controlled_failure(
     assert "deliberate_failure" in response["reason"]
 
 
-def test_documented_full_example_matches_strict_schema() -> None:
-    example = Path(__file__).parents[1] / "examples" / "constraintloop.full.yml"
-    Contract.model_validate(yaml.safe_load(example.read_text(encoding="utf-8")))
+def test_documented_examples_match_strict_schema() -> None:
+    examples = Path(__file__).parents[1] / "examples"
+
+    for example in sorted(examples.rglob("*.yml")):
+        Contract.model_validate(yaml.safe_load(example.read_text(encoding="utf-8")))

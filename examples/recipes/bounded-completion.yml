@@ -1,0 +1,23 @@
+version: 1
+
+settings:
+  max_auto_retries: 2
+
+constraints:
+  tests:
+    kind: command
+    command: [python, -m, pytest, -q]
+    phases: [stop, ci]
+    watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
+
+loops:
+  completion:
+    phase: stop
+    interval_seconds: 10
+    max_repair_attempts: 3
+    max_unchanged_repairs: 2
+    max_duration_seconds: 1200
+    on_pass: stop
+    on_failure: repair
+    on_pending: wait
+    on_budget_exhausted: human_required

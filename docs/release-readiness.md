@@ -12,7 +12,7 @@ ConstraintLoop currently has:
 
 - an MIT license and modern `pyproject.toml` package;
 - a buildable source distribution and universal wheel;
-- 135 passing tests with 90.84% statement and 82.70% branch coverage;
+- 136 passing tests with 90.84% statement and 82.70% branch coverage;
 - strict contract validation and deterministic, rubric, cache, waiver, and hook
   tests;
 - Claude Code, Codex, and Gemini hook configurations;
