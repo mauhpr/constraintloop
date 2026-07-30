@@ -93,8 +93,9 @@ def test_setup_uses_resolved_project_local_executable(tmp_path: Path, monkeypatc
     path = install_hooks(tmp_path, "codex")
     data = json.loads(path.read_text(encoding="utf-8"))
     command = data["hooks"]["Stop"][0]["hooks"][0]["command"]
-    assert command.startswith(str(executable))
-    assert f"--project {tmp_path}" in command
+    assert command.startswith('"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop"')
+    assert '--project "$(git rev-parse --show-toplevel)"' in command
+    assert str(tmp_path) not in command
 
 
 def test_setup_migrates_unbound_hook_to_project_bound_command(tmp_path: Path, monkeypatch) -> None:
@@ -132,7 +133,8 @@ def test_setup_migrates_unbound_hook_to_project_bound_command(tmp_path: Path, mo
         for hook in group["hooks"]
     ]
     assert commands == [
-        f"/usr/local/bin/constraintloop hook --adapter codex --event stop --project {tmp_path}"
+        "constraintloop hook --adapter codex --event stop "
+        '--project "$(git rev-parse --show-toplevel)"'
     ]
 
 
@@ -276,7 +278,24 @@ def test_setup_refuses_invalid_json_and_supports_module_invocation(
     command = json.loads(path.read_text(encoding="utf-8"))["hooks"]["Stop"][0]["hooks"][0][
         "command"
     ]
-    assert f"{sys.executable} -m constraintloop" in command
+    assert "python -m constraintloop" in command
+    assert str(tmp_path) not in command
+
+
+@pytest.mark.parametrize("adapter", ["claude", "codex", "gemini"])
+def test_setup_never_embeds_project_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, adapter: str
+) -> None:
+    executable = tmp_path / ".venv" / "bin" / "constraintloop"
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    monkeypatch.setattr(sys, "argv", [str(executable)])
+
+    path = install_hooks(tmp_path, adapter)
+
+    contents = path.read_text(encoding="utf-8")
+    assert str(tmp_path) not in contents
+    assert '--project \\"$(git rev-parse --show-toplevel)\\"' in contents
 
 
 @pytest.mark.parametrize(

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event session-start",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event session-start --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: session-start"
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event user-prompt",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event user-prompt --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: user-prompt"
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event pre-tool",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event pre-tool --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: pre-tool"
           }
         ],
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event post-tool",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event post-tool --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: post-tool"
           }
         ],
@@ -51,7 +51,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event pre-compact",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event pre-compact --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: pre-compact"
           }
         ]
@@ -62,7 +62,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event stop",
+            "command": "\"$(git rev-parse --show-toplevel)/.venv/bin/constraintloop\" hook --adapter claude --event stop --project \"$(git rev-parse --show-toplevel)\"",
             "statusMessage": "ConstraintLoop: stop"
           }
         ]
