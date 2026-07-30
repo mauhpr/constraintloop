@@ -26,6 +26,9 @@ def test_package_versions_and_canonical_urls_are_consistent() -> None:
     assert "CI ignores every waiver and remains blocking" in normalized_readme
     assert "local CLI cannot authenticate whether its caller is human" in normalized_readme
     assert "always block completion" not in normalized_readme
+    assert "img.shields.io/pypi/v/constraintloop" in readme
+    assert "img.shields.io/pypi/pyversions/constraintloop" in readme
+    assert "License-MIT" in readme
     conduct = (root / "CODE_OF_CONDUCT.md").read_text(encoding="utf-8")
     security = (root / "SECURITY.md").read_text(encoding="utf-8")
     assert "Contributor Covenant Code of Conduct" in conduct
