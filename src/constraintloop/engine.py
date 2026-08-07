@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 import time
 import uuid
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
@@ -56,6 +59,7 @@ class ConstraintEngine:
         goal: str | None = None,
         agent_adapter: str | None = None,
         refresh_pending: bool = False,
+        progress: Callable[[str], None] | None = None,
     ):
         self.project_root = project_root.resolve()
         self.contract = contract
@@ -64,6 +68,8 @@ class ConstraintEngine:
         self.goal = goal
         self.agent_adapter = agent_adapter
         self.refresh_pending = refresh_pending
+        self.progress = progress
+        self._progress_lock = threading.Lock()
         self.contract_digest = contract_digest(contract)
 
     def run(self, phase: Phase) -> EvidenceRecord:
@@ -213,33 +219,69 @@ class ConstraintEngine:
                                 "message": f"Locally waived by a human: {reason}",
                             }
                         )
+                self._emit(f"REUSED {constraint_id}: {cached.verdict.value}")
                 return cached
 
-        if isinstance(spec, CommandConstraint):
-            result = run_command_constraint(
-                self.project_root,
-                constraint_id,
-                spec,
-                digest,
-                self.contract.settings.evidence_output_limit,
-            )
-        elif isinstance(spec, MetricConstraint):
-            result = run_metric_constraint(
-                self.project_root,
-                constraint_id,
-                spec,
-                digest,
-                self.contract.settings.evidence_output_limit,
-            )
-        elif isinstance(spec, ArtifactConstraint):
-            result = run_artifact_constraint(self.project_root, constraint_id, spec, digest)
-        else:
-            assert bundle is not None
-            result = self._run_rubric(constraint_id, spec, digest, bundle)
+        self._emit(f"RUN {constraint_id} ({spec.kind})")
+        with self._heartbeat(constraint_id):
+            if isinstance(spec, CommandConstraint):
+                progress_kwargs = {"progress": self._emit} if self.progress is not None else {}
+                result = run_command_constraint(
+                    self.project_root,
+                    constraint_id,
+                    spec,
+                    digest,
+                    self.contract.settings.evidence_output_limit,
+                    **progress_kwargs,
+                )
+            elif isinstance(spec, MetricConstraint):
+                progress_kwargs = {"progress": self._emit} if self.progress is not None else {}
+                result = run_metric_constraint(
+                    self.project_root,
+                    constraint_id,
+                    spec,
+                    digest,
+                    self.contract.settings.evidence_output_limit,
+                    **progress_kwargs,
+                )
+            elif isinstance(spec, ArtifactConstraint):
+                result = run_artifact_constraint(self.project_root, constraint_id, spec, digest)
+            else:
+                assert bundle is not None
+                result = self._run_rubric(constraint_id, spec, digest, bundle)
+        self._emit(
+            f"DONE {constraint_id}: {result.verdict.value} ({result.duration_ms / 1000:.1f}s)"
+        )
 
         if self.use_cache:
             save_cached_result(self.project_root, result, cache_digest=cache_digest)
         return result
+
+    def _emit(self, message: str) -> None:
+        if self.progress is not None:
+            with self._progress_lock:
+                self.progress(message)
+
+    @contextmanager
+    def _heartbeat(self, constraint_id: str) -> Iterator[None]:
+        if self.progress is None:
+            yield
+            return
+        stopped = threading.Event()
+        started = time.monotonic()
+
+        def report() -> None:
+            interval = self.contract.settings.progress_interval_seconds
+            while not stopped.wait(interval):
+                self._emit(f"STILL RUNNING {constraint_id} ({time.monotonic() - started:.0f}s)")
+
+        thread = threading.Thread(target=report, daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stopped.set()
+            thread.join(timeout=1)
 
     def _run_rubric(
         self,

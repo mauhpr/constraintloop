@@ -132,8 +132,10 @@ trusted completion boundary.
 ### Will setup overwrite existing hooks?
 
 No. `constraintloop setup` merges owned hook entries and preserves unrelated
-configuration. `constraintloop uninstall` removes only owned entries. Review
-and trust newly installed Codex project hooks through `/hooks`.
+configuration. In a monorepo, hooks retain the exact directory selected with
+`--project` instead of falling back to the Git root. `constraintloop uninstall`
+removes only owned entries. Review and trust newly installed Codex project hooks
+through `/hooks`.
 
 ### Why does a hook say `Missing option --project`?
 
@@ -168,7 +170,7 @@ journal and releases the lease.
 
 ## Compatibility and release
 
-### Which platforms are supported in v0.1?
+### Which platforms are supported in v0.2?
 
 Linux and macOS on Python 3.11 through 3.14. Windows is not supported until
 hook commands, locking, process control, and installed-wheel behavior have

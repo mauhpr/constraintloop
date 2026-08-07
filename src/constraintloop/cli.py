@@ -17,10 +17,12 @@ from constraintloop.config import (
     contract_digest,
     load_contract,
 )
+from constraintloop.diagnostics import deep_diagnostics
 from constraintloop.digest import constraint_input_digest
 from constraintloop.engine import ConstraintEngine, format_summary
 from constraintloop.environment import load_project_environment, project_environment_path
 from constraintloop.hooks import handle_hook
+from constraintloop.hygiene import ensure_local_files_ignored, tracked_state_files
 from constraintloop.loops import CYCLE_EXIT_CODES, LoopError, loop_prompt, run_cycle, supervise
 from constraintloop.models import (
     CommandEvaluatorConfig,
@@ -64,6 +66,7 @@ def init_command(project: Path, force: bool) -> None:
     path = root / "constraintloop.yml"
     if path.exists() and not force:
         raise click.ClickException(f"{path} already exists; use --force to replace it")
+    _protect_local_files(root)
     path = write_initial_contract(root)
     click.echo(f"Created {path}")
 
@@ -76,13 +79,22 @@ def init_command(project: Path, force: bool) -> None:
     show_default=True,
 )
 @click.option("--project", type=click.Path(path_type=Path), default=Path("."))
-def setup_command(adapter: str, project: Path) -> None:
+@click.option(
+    "--hook-executable",
+    help="Persistent command used to invoke ConstraintLoop from generated hooks.",
+)
+def setup_command(adapter: str, project: Path, hook_executable: str | None) -> None:
     """Install idempotent Claude, Codex, and Gemini hook entries."""
     root = _root(project)
+    _protect_local_files(root)
     adapters = list(ADAPTERS) if adapter == "all" else [adapter]
     for name in adapters:
         try:
-            path = install_hooks(root, name)
+            path = (
+                install_hooks(root, name, hook_executable=hook_executable)
+                if hook_executable is not None
+                else install_hooks(root, name)
+            )
         except (OSError, ValueError) as exc:
             raise click.ClickException(f"Could not install {name} hooks: {exc}") from exc
         click.echo(f"Updated {path}")
@@ -111,7 +123,7 @@ def uninstall_command(adapter: str, project: Path) -> None:
 def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -> None:
     root = _root(project)
     try:
-        contract, _ = load_contract(root)
+        contract, _ = load_contract(root, include_local=phase != Phase.CI)
     except ContractError as exc:
         raise click.ClickException(str(exc)) from exc
     record = ConstraintEngine(
@@ -119,6 +131,7 @@ def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -
         contract,
         use_cache=not no_cache and phase != Phase.CI,
         allow_waivers=phase != Phase.CI,
+        progress=None if json_output else lambda message: click.echo(message, err=True),
     ).run(phase)
     click.echo(
         record.model_dump_json(indent=2)
@@ -253,7 +266,8 @@ def status_command(project: Path) -> None:
 
 @main.command("doctor")
 @click.option("--project", type=click.Path(path_type=Path), default=Path("."))
-def doctor_command(project: Path) -> None:
+@click.option("--deep", is_flag=True, help="Check commands, inputs, environment, and local state.")
+def doctor_command(project: Path, deep: bool) -> None:
     """Validate the contract and report its deterministic identity."""
     root = _root(project)
     try:
@@ -277,6 +291,30 @@ def doctor_command(project: Path) -> None:
             )
             click.echo(f"evaluator {evaluator_id}: {api_key_env} {status}")
     click.echo(f"local secrets file: {project_environment_path(root)}")
+    if deep:
+        issues = deep_diagnostics(root, contract, project_environment)
+        if issues:
+            for issue in issues:
+                click.echo(f"WARN {issue}")
+            click.echo(f"deep diagnostics: {len(issues)} issue(s)")
+            raise click.exceptions.Exit(1)
+        click.echo("deep diagnostics: OK")
+
+
+def _protect_local_files(root: Path) -> None:
+    try:
+        ensure_local_files_ignored(root)
+    except OSError as exc:
+        raise click.ClickException(
+            f"Could not protect local ConstraintLoop files in {root / '.gitignore'}: {exc}"
+        ) from exc
+    tracked = tracked_state_files(root)
+    if tracked:
+        click.echo(
+            "Warning: .constraintloop/state is already tracked; remove it from the Git index "
+            "with 'git rm -r --cached .constraintloop/state'.",
+            err=True,
+        )
 
 
 def _resolve_executable(root: Path, command: str) -> Path | None:

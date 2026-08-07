@@ -55,6 +55,30 @@ def test_cache_is_content_addressed(tmp_path: Path, monkeypatch) -> None:
     assert not third.results[0].cached
 
 
+def test_engine_streams_start_heartbeat_and_completion(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CONSTRAINTLOOP_CACHE_DIR", str(tmp_path / "cache"))
+    contract = Contract.model_validate(
+        {
+            "settings": {"progress_interval_seconds": 0.1},
+            "constraints": {
+                "slow": {
+                    "kind": "command",
+                    "command": [sys.executable, "-c", "import time; time.sleep(0.25)"],
+                    "phases": ["stop"],
+                }
+            },
+        }
+    )
+    progress: list[str] = []
+
+    record = ConstraintEngine(tmp_path, contract, progress=progress.append).run(Phase.STOP)
+
+    assert record.passed
+    assert progress[0] == "RUN slow (command)"
+    assert any(line.startswith("STILL RUNNING slow") for line in progress)
+    assert progress[-1].startswith("DONE slow: pass")
+
+
 def test_local_waiver_is_snapshot_bound_and_ci_ignores_it(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CONSTRAINTLOOP_CACHE_DIR", str(tmp_path / "cache"))
     (tmp_path / "value").write_text("bad", encoding="utf-8")

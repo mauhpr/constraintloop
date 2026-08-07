@@ -40,6 +40,16 @@ class ContractSettings(StrictModel):
     concurrency: int = Field(default=4, ge=1, le=32)
     evidence_output_limit: int = Field(default=65_536, ge=1_024, le=1_048_576)
     evaluation_bundle_limit: int = Field(default=102_400, ge=4_096, le=2_097_152)
+    progress_interval_seconds: float = Field(default=15.0, ge=0.1, le=300)
+
+
+class CommandRetryPolicy(StrictModel):
+    max_attempts: int = Field(default=2, ge=2, le=10)
+    exit_codes: list[int] = Field(default_factory=lambda: [1])
+    retry_timeouts: bool = False
+    retry_start_errors: bool = True
+    delay_seconds: float = Field(default=1.0, ge=0, le=300)
+    total_timeout_seconds: float | None = Field(default=None, gt=0, le=7_200)
 
 
 class BaseConstraint(StrictModel):
@@ -64,6 +74,7 @@ class CommandConstraint(BaseConstraint):
     cwd: str = "."
     success_codes: list[int] = Field(default_factory=lambda: [0])
     pending_codes: list[int] = Field(default_factory=lambda: [75])
+    retry: CommandRetryPolicy | None = None
 
     @model_validator(mode="after")
     def validate_command(self) -> CommandConstraint:
@@ -73,6 +84,21 @@ class CommandConstraint(BaseConstraint):
             raise ValueError("command argv cannot be empty")
         if set(self.success_codes) & set(self.pending_codes):
             raise ValueError("success_codes and pending_codes must not overlap")
+        if self.retry and set(self.retry.exit_codes) & (
+            set(self.success_codes) | set(self.pending_codes)
+        ):
+            raise ValueError("retry exit_codes must not overlap success_codes or pending_codes")
+        if (
+            self.retry
+            and self.retry.retry_timeouts
+            and (
+                self.retry.total_timeout_seconds is None
+                or self.retry.total_timeout_seconds <= self.timeout_seconds
+            )
+        ):
+            raise ValueError(
+                "timeout retries require retry.total_timeout_seconds greater than timeout_seconds"
+            )
         return self
 
 
@@ -107,6 +133,7 @@ class MetricConstraint(BaseConstraint):
     cwd: str = "."
     success_codes: list[int] = Field(default_factory=lambda: [0])
     pending_codes: list[int] = Field(default_factory=lambda: [75])
+    retry: CommandRetryPolicy | None = None
     parser: MetricParser
     threshold: MetricThreshold
 
@@ -118,6 +145,21 @@ class MetricConstraint(BaseConstraint):
             raise ValueError("command argv cannot be empty")
         if set(self.success_codes) & set(self.pending_codes):
             raise ValueError("success_codes and pending_codes must not overlap")
+        if self.retry and set(self.retry.exit_codes) & (
+            set(self.success_codes) | set(self.pending_codes)
+        ):
+            raise ValueError("retry exit_codes must not overlap success_codes or pending_codes")
+        if (
+            self.retry
+            and self.retry.retry_timeouts
+            and (
+                self.retry.total_timeout_seconds is None
+                or self.retry.total_timeout_seconds <= self.timeout_seconds
+            )
+        ):
+            raise ValueError(
+                "timeout retries require retry.total_timeout_seconds greater than timeout_seconds"
+            )
         return self
 
 

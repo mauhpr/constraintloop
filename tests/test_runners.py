@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,81 @@ def test_command_runner_success_failure_errors_and_truncation(tmp_path: Path) ->
     result = run_command_constraint(tmp_path, "pending", pending, "digest", 1024)
     assert result.verdict.value == "pending"
     assert result.exit_code == 75
+
+
+def test_command_runner_retries_configured_transient_exit_codes(tmp_path: Path) -> None:
+    counter = tmp_path / "attempts"
+    code = (
+        "from pathlib import Path; "
+        "p=Path('attempts'); n=int(p.read_text())+1 if p.exists() else 1; "
+        "p.write_text(str(n)); raise SystemExit(1 if n == 1 else 0)"
+    )
+    spec = CommandConstraint.model_validate(
+        {
+            "kind": "command",
+            "command": [sys.executable, "-c", code],
+            "retry": {"max_attempts": 3, "exit_codes": [1], "delay_seconds": 0},
+        }
+    )
+    progress: list[str] = []
+
+    result = run_command_constraint(
+        tmp_path, "integration", spec, "digest", 1024, progress=progress.append
+    )
+
+    assert result.verdict.value == "pass"
+    assert counter.read_text(encoding="utf-8") == "2"
+    assert "after 2 attempts" in result.message
+    assert progress == ["RETRY integration: attempt 2/3"]
+
+
+def test_command_retry_sequence_respects_total_constraint_timeout(tmp_path: Path) -> None:
+    spec = CommandConstraint.model_validate(
+        {
+            "kind": "command",
+            "command": [sys.executable, "-c", "import time; time.sleep(.08); raise SystemExit(1)"],
+            "timeout_seconds": 0.12,
+            "retry": {"max_attempts": 3, "exit_codes": [1], "delay_seconds": 0},
+        }
+    )
+
+    started = time.monotonic()
+    result = run_command_constraint(tmp_path, "bounded", spec, "digest", 1024)
+    elapsed = time.monotonic() - started
+
+    assert result.verdict.value == "error"
+    assert "timed out" in result.message
+    assert elapsed < 0.3
+
+
+def test_command_can_retry_timeout_with_explicit_total_budget(tmp_path: Path) -> None:
+    code = (
+        "from pathlib import Path; import time; "
+        "p=Path('timeout-attempts'); n=int(p.read_text())+1 if p.exists() else 1; "
+        "p.write_text(str(n)); time.sleep(.06) if n == 1 else None"
+    )
+    spec = CommandConstraint.model_validate(
+        {
+            "kind": "command",
+            "command": [sys.executable, "-c", code],
+            "timeout_seconds": 0.03,
+            "retry": {
+                "max_attempts": 2,
+                "exit_codes": [],
+                "retry_timeouts": True,
+                "delay_seconds": 0,
+                "total_timeout_seconds": 0.1,
+            },
+        }
+    )
+    progress: list[str] = []
+
+    result = run_command_constraint(
+        tmp_path, "timeout-retry", spec, "digest", 1024, progress=progress.append
+    )
+
+    assert result.verdict.value == "pass"
+    assert progress == ["RETRY timeout-retry: attempt 2/2"]
 
 
 @pytest.mark.parametrize(

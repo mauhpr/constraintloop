@@ -14,3 +14,5 @@ build/
 dist/
 *.egg-info/
 .constraintloop/
+constraintloop.local.yml
+constraintloop.local.yaml

@@ -49,6 +49,52 @@ def test_run_ci_status_doctor_and_waive_commands(tmp_path: Path, monkeypatch) ->
     assert "already pass" in waiver.output
 
 
+def test_doctor_deep_reports_missing_inputs_environment_and_python_module(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("REQUIRED_TOKEN", raising=False)
+    (tmp_path / ".gitignore").write_text(
+        ".constraintloop/state/\nconstraintloop.local.yml\nconstraintloop.local.yaml\n",
+        encoding="utf-8",
+    )
+    payload = {
+        "constraints": {
+            "integration": {
+                "kind": "command",
+                "command": [
+                    sys.executable,
+                    "-m",
+                    "definitely_missing_constraintloop_module",
+                    "--env-file",
+                    ".env",
+                    "$REQUIRED_TOKEN",
+                ],
+                "watch": ["missing/**/*.py"],
+            }
+        }
+    }
+    (tmp_path / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["doctor", "--deep", "--project", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "watch globs match no files" in result.output
+    assert "environment variable is missing: REQUIRED_TOKEN" in result.output
+    assert "Python module not found" in result.output
+    assert "referenced environment file is missing: .env" in result.output
+
+
+def test_ci_ignores_local_contract_overlay(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CONSTRAINTLOOP_CACHE_DIR", str(tmp_path / "cache"))
+    _write_contract(tmp_path, passing=True)
+    overlay = {"constraints": {"check": {"command": [sys.executable, "-c", "raise SystemExit(1)"]}}}
+    (tmp_path / "constraintloop.local.yml").write_text(yaml.safe_dump(overlay), encoding="utf-8")
+    runner = CliRunner()
+
+    assert runner.invoke(main, ["run", "--project", str(tmp_path)]).exit_code == 1
+    assert runner.invoke(main, ["ci", "--project", str(tmp_path)]).exit_code == 0
+
+
 def test_waive_requires_fresh_non_passing_evidence(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("CONSTRAINTLOOP_CACHE_DIR", str(tmp_path / "cache"))
     _write_contract(tmp_path, passing=False)
