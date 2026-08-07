@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import constraintloop.runners as runners_module
 from constraintloop.models import ArtifactConstraint, CommandConstraint, MetricConstraint
 from constraintloop.runners import (
     run_artifact_constraint,
@@ -96,16 +97,11 @@ def test_command_retry_sequence_respects_total_constraint_timeout(tmp_path: Path
     assert elapsed < 0.3
 
 
-def test_command_can_retry_timeout_with_explicit_total_budget(tmp_path: Path) -> None:
-    code = (
-        "from pathlib import Path; import time; "
-        "p=Path('timeout-attempts'); n=int(p.read_text())+1 if p.exists() else 1; "
-        "p.write_text(str(n)); time.sleep(.06) if n == 1 else None"
-    )
+def test_command_can_retry_timeout_with_explicit_total_budget(tmp_path: Path, monkeypatch) -> None:
     spec = CommandConstraint.model_validate(
         {
             "kind": "command",
-            "command": [sys.executable, "-c", code],
+            "command": [sys.executable, "-c", "pass"],
             "timeout_seconds": 0.03,
             "retry": {
                 "max_attempts": 2,
@@ -117,6 +113,8 @@ def test_command_can_retry_timeout_with_explicit_total_budget(tmp_path: Path) ->
         }
     )
     progress: list[str] = []
+    outcomes = iter(["Command timed out after 0.03s", (0, "", "")])
+    monkeypatch.setattr(runners_module, "_run_command", lambda *args: next(outcomes))
 
     result = run_command_constraint(
         tmp_path, "timeout-retry", spec, "digest", 1024, progress=progress.append

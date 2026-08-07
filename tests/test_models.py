@@ -175,6 +175,32 @@ def test_pending_and_success_codes_cannot_overlap() -> None:
         )
 
 
+@pytest.mark.parametrize("kind", ["command", "metric"])
+@pytest.mark.parametrize(
+    ("retry", "message"),
+    [
+        ({"max_attempts": 2, "exit_codes": [0]}, "retry exit_codes"),
+        (
+            {"max_attempts": 2, "exit_codes": [], "retry_timeouts": True},
+            "total_timeout_seconds",
+        ),
+    ],
+)
+def test_retry_policy_rejects_ambiguous_or_unbounded_configuration(
+    kind: str, retry: dict[str, object], message: str
+) -> None:
+    constraint: dict[str, object] = {"kind": kind, "command": ["check"], "retry": retry}
+    if kind == "metric":
+        constraint.update(
+            {
+                "parser": {"type": "json", "path": "value"},
+                "threshold": {"operator": "gte", "value": 1},
+            }
+        )
+    with pytest.raises(ValidationError, match=message):
+        Contract.model_validate({"constraints": {"check": constraint}})
+
+
 @pytest.mark.parametrize("pattern", ["", "/absolute/**", "../outside/**", "bad\\glob"])
 def test_contract_rejects_non_relative_globs(pattern: str) -> None:
     with pytest.raises(ValidationError, match="project-relative"):

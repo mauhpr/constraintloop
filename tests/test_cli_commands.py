@@ -235,6 +235,29 @@ def test_setup_and_init_existing_contract_errors(tmp_path: Path, monkeypatch) ->
     assert existing.exit_code != 0
 
 
+def test_setup_reports_ignore_protection_failure_and_tracked_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    runner = CliRunner()
+    monkeypatch.setattr(
+        cli_module,
+        "ensure_local_files_ignored",
+        lambda root: (_ for _ in ()).throw(OSError("read-only ignore file")),
+    )
+    failed = runner.invoke(main, ["setup", "--adapter", "codex", "--project", str(tmp_path)])
+    assert failed.exit_code != 0
+    assert "Could not protect local ConstraintLoop files" in failed.output
+
+    monkeypatch.setattr(cli_module, "ensure_local_files_ignored", lambda root: (root, []))
+    monkeypatch.setattr(
+        cli_module, "tracked_state_files", lambda root: [".constraintloop/state/evidence.json"]
+    )
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
+    warned = runner.invoke(main, ["setup", "--adapter", "codex", "--project", str(tmp_path)])
+    assert warned.exit_code == 0
+    assert "already tracked" in warned.output
+
+
 def test_setup_and_uninstall_report_hook_filesystem_errors(tmp_path: Path, monkeypatch) -> None:
     runner = CliRunner()
 

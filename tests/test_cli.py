@@ -159,3 +159,44 @@ def test_local_overlay_rejects_other_policy_weakening(
 
     with pytest.raises(ContractError, match=field):
         load_contract(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("overlay", "message"),
+    [
+        ({"evaluators": {"reviewer": {"timeout_seconds": 61}}}, "evaluator"),
+        ({"loops": {"completion": {"interval_seconds": 2}}}, "loop"),
+    ],
+)
+def test_local_overlay_cannot_replace_evaluators_or_loops(
+    tmp_path: Path, overlay: dict[str, object], message: str
+) -> None:
+    base = {
+        "constraints": {
+            "check": {"kind": "command", "command": ["true"], "phases": ["stop"]},
+            "review": {
+                "kind": "rubric",
+                "enforcement": "advisory",
+                "evaluator": "reviewer",
+                "rubric": "Review",
+                "phases": ["stop"],
+            },
+        },
+        "evaluators": {
+            "reviewer": {"type": "command", "command": ["review"], "timeout_seconds": 60}
+        },
+        "loops": {
+            "completion": {
+                "phase": "stop",
+                "interval_seconds": 1,
+                "max_repair_attempts": 1,
+                "max_unchanged_repairs": 1,
+                "max_duration_seconds": 60,
+            }
+        },
+    }
+    (tmp_path / "constraintloop.yml").write_text(yaml.safe_dump(base), encoding="utf-8")
+    (tmp_path / "constraintloop.local.yml").write_text(yaml.safe_dump(overlay), encoding="utf-8")
+
+    with pytest.raises(ContractError, match=message):
+        load_contract(tmp_path)
