@@ -98,6 +98,42 @@ def test_setup_uses_resolved_project_local_executable(tmp_path: Path, monkeypatc
     assert str(tmp_path) not in command
 
 
+def test_setup_preserves_selected_project_inside_monorepo(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".git").mkdir()
+    project = tmp_path / "packages" / "atool"
+    executable = project / ".venv" / "bin" / "constraintloop"
+    executable.parent.mkdir(parents=True)
+    executable.touch()
+    monkeypatch.setattr(sys, "argv", [str(executable)])
+
+    path = install_hooks(project, "codex")
+    command = json.loads(path.read_text(encoding="utf-8"))["hooks"]["Stop"][0]["hooks"][0][
+        "command"
+    ]
+
+    assert '"$(git rev-parse --show-toplevel)/packages/atool/.venv/bin/constraintloop"' in command
+    assert '--project "$(git rev-parse --show-toplevel)/packages/atool"' in command
+
+
+def test_setup_pins_uvx_and_supports_explicit_hook_executable(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [str(tmp_path / ".cache" / "uv" / "archive-v0" / "abc" / "bin" / "constraintloop")],
+    )
+    path = install_hooks(tmp_path, "codex")
+    command = json.loads(path.read_text(encoding="utf-8"))["hooks"]["Stop"][0]["hooks"][0][
+        "command"
+    ]
+    assert command.startswith("uvx --from constraintloop==0.2.0 constraintloop hook")
+
+    path = install_hooks(tmp_path, "codex", hook_executable="pipx run constraintloop")
+    command = json.loads(path.read_text(encoding="utf-8"))["hooks"]["Stop"][0]["hooks"][0][
+        "command"
+    ]
+    assert command.startswith("pipx run constraintloop hook")
+
+
 def test_setup_migrates_unbound_hook_to_project_bound_command(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
     path = tmp_path / ".codex" / "hooks.json"

@@ -14,6 +14,7 @@ from typing import Any, cast
 from constraintloop.models import (
     ArtifactConstraint,
     CommandConstraint,
+    CommandRetryPolicy,
     ConstraintResult,
     Enforcement,
     MetricConstraint,
@@ -35,9 +36,20 @@ def run_command_constraint(
     spec: CommandConstraint,
     input_digest: str,
     output_limit: int,
+    *,
+    progress: Callable[[str], None] | None = None,
 ) -> ConstraintResult:
     started = time.monotonic()
-    execution = _run_command(project_root, spec.command, spec.shell, spec.cwd, spec.timeout_seconds)
+    execution, attempts = _run_with_retries(
+        project_root,
+        constraint_id,
+        spec.command,
+        spec.shell,
+        spec.cwd,
+        spec.timeout_seconds,
+        spec.retry,
+        progress,
+    )
     duration = (time.monotonic() - started) * 1000
     if isinstance(execution, str):
         return _error_result(
@@ -58,13 +70,18 @@ def run_command_constraint(
         )
     passed = returncode in spec.success_codes
     output = _output_tail(stdout, stderr, output_limit)
+    attempt_suffix = f" after {attempts} attempts" if attempts > 1 else ""
     return ConstraintResult(
         constraint_id=constraint_id,
         kind=spec.kind,
         verdict=Verdict.PASS if passed else Verdict.FAIL,
         enforcement=spec.enforcement,
         input_digest=input_digest,
-        message="Command passed" if passed else f"Command exited with code {returncode}",
+        message=(
+            f"Command passed{attempt_suffix}"
+            if passed
+            else f"Command exited with code {returncode}{attempt_suffix}"
+        ),
         duration_ms=duration,
         exit_code=returncode,
         output_tail=output or None,
@@ -77,9 +94,20 @@ def run_metric_constraint(
     spec: MetricConstraint,
     input_digest: str,
     output_limit: int,
+    *,
+    progress: Callable[[str], None] | None = None,
 ) -> ConstraintResult:
     started = time.monotonic()
-    execution = _run_command(project_root, spec.command, spec.shell, spec.cwd, spec.timeout_seconds)
+    execution, _ = _run_with_retries(
+        project_root,
+        constraint_id,
+        spec.command,
+        spec.shell,
+        spec.cwd,
+        spec.timeout_seconds,
+        spec.retry,
+        progress,
+    )
     duration = (time.monotonic() - started) * 1000
     if isinstance(execution, str):
         return _error_result(
@@ -220,6 +248,51 @@ def _run_command(
     except (FileNotFoundError, OSError) as exc:
         return f"Command could not start: {exc}"
     return result.returncode, result.stdout or "", result.stderr or ""
+
+
+def _run_with_retries(
+    project_root: Path,
+    constraint_id: str,
+    command: list[str] | str,
+    shell: bool,
+    cwd: str,
+    timeout: float,
+    policy: CommandRetryPolicy | None,
+    progress: Callable[[str], None] | None,
+) -> tuple[tuple[int, str, str] | str, int]:
+    max_attempts = policy.max_attempts if policy is not None else 1
+    total_timeout = (
+        policy.total_timeout_seconds
+        if policy is not None and policy.total_timeout_seconds is not None
+        else timeout
+    )
+    execution: tuple[int, str, str] | str = "Command did not run"
+    started = time.monotonic()
+    for attempt in range(1, max_attempts + 1):
+        remaining = total_timeout - (time.monotonic() - started)
+        if remaining <= 0:
+            return f"Command timed out after {total_timeout:g}s across retry attempts", attempt
+        execution = _run_command(project_root, command, shell, cwd, min(timeout, remaining))
+        if policy is None or attempt == max_attempts or not _is_retryable(execution, policy):
+            return execution, attempt
+        if progress is not None:
+            progress(f"RETRY {constraint_id}: attempt {attempt + 1}/{max_attempts}")
+        if policy.delay_seconds:
+            remaining = total_timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                return f"Command timed out after {total_timeout:g}s across retry attempts", attempt
+            time.sleep(min(policy.delay_seconds, remaining))
+    return execution, max_attempts
+
+
+def _is_retryable(execution: tuple[int, str, str] | str, policy: CommandRetryPolicy) -> bool:
+    if isinstance(execution, str):
+        if execution.startswith("Command timed out"):
+            return bool(policy.retry_timeouts)
+        if execution.startswith("Command could not start"):
+            return bool(policy.retry_start_errors)
+        return False
+    return execution[0] in policy.exit_codes
 
 
 def _parse_metric(

@@ -5,6 +5,21 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-07
+
+- Preserve selected monorepo project paths in generated hooks, support explicit
+  persistent hook executables, and pin ephemeral `uvx` hook invocations.
+- Add gitignored, strengthening-only local contract overlays while keeping CI
+  authoritative, and automatically protect local state from Git tracking.
+- Stream constraint start, heartbeat, retry, cache reuse, and completion status
+  during long human-readable runs.
+- Add bounded per-command transient retry policies for exit codes, startup
+  failures, and timeouts with explicit total budgets.
+- Add read-only `doctor --deep` diagnostics for executables, Python invocation,
+  environment variables/files, empty watch globs, and state hygiene.
+- Recommend isolated `uv tool` or `pipx` installation to avoid project dependency
+  conflicts.
+
 ## [0.1.0] - 2026-07-29
 
 - Added the initial evidence engine, strict contract schema, provider adapters,

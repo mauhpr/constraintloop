@@ -11,6 +11,8 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from constraintloop import __version__
+
 ADAPTERS: dict[str, tuple[Path, dict[str, str]]] = {
     "claude": (
         Path(".claude/settings.json"),
@@ -48,7 +50,7 @@ ADAPTERS: dict[str, tuple[Path, dict[str, str]]] = {
 }
 
 
-def install_hooks(project_root: Path, adapter: str) -> Path:
+def install_hooks(project_root: Path, adapter: str, hook_executable: str | None = None) -> Path:
     relative, events = ADAPTERS[adapter]
     path = project_root / relative
     try:
@@ -62,8 +64,8 @@ def install_hooks(project_root: Path, adapter: str) -> Path:
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         raise ValueError(f"Existing hooks value is not an object in {path}")
-    executable = _portable_executable(project_root)
-    project_argument = '"$(git rev-parse --show-toplevel)"'
+    executable = hook_executable or _portable_executable(project_root)
+    project_argument = _portable_project_argument(project_root)
     for native_event, event in events.items():
         command = (
             f"{executable} hook --adapter {adapter} --event {event} --project {project_argument}"
@@ -97,11 +99,37 @@ def _portable_executable(project_root: Path) -> str:
     executable_path = Path(sys.argv[0]).resolve()
     if executable_path.name == "__main__.py":
         return "python -m constraintloop"
+    if _looks_like_uvx(executable_path):
+        return f"uvx --from constraintloop=={__version__} constraintloop"
+    git_root = _git_root(project_root)
     try:
-        relative = executable_path.relative_to(project_root.resolve())
+        relative = executable_path.relative_to(git_root)
     except ValueError:
         return shlex.quote(executable_path.name)
     return f'"$(git rev-parse --show-toplevel)/{relative.as_posix()}"'
+
+
+def _portable_project_argument(project_root: Path) -> str:
+    git_root = _git_root(project_root)
+    try:
+        relative = project_root.resolve().relative_to(git_root)
+    except ValueError:
+        return shlex.quote(str(project_root.resolve()))
+    suffix = "" if relative == Path(".") else f"/{relative.as_posix()}"
+    return f'"$(git rev-parse --show-toplevel){suffix}"'
+
+
+def _git_root(project_root: Path) -> Path:
+    resolved = project_root.resolve()
+    for candidate in (resolved, *resolved.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return resolved
+
+
+def _looks_like_uvx(path: Path) -> bool:
+    value = path.as_posix().lower()
+    return "/uv/archive-" in value or "/.cache/uv/" in value or "/caches/uv/" in value
 
 
 def uninstall_hooks(project_root: Path, adapter: str) -> tuple[Path, int]:

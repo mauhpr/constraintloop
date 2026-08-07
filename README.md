@@ -75,9 +75,8 @@ flowchart LR
 ## Quick start
 
 ```bash
-python -m venv .venv
-. .venv/bin/activate
-pip install constraintloop
+uv tool install constraintloop
+# Or: pipx install constraintloop
 
 constraintloop init
 constraintloop setup --adapter all
@@ -88,6 +87,12 @@ constraintloop ci
 `constraintloop init` detects existing Python and Node tooling and writes a
 plain `constraintloop.yml`. It does not install tools or silently invent gates.
 Review and commit the contract.
+
+Install ConstraintLoop as an isolated tool instead of adding it to the target
+project's environment. This avoids dependency conflicts with the application.
+If you intentionally run setup through `uvx`, generated hooks pin the current
+ConstraintLoop version. You can choose another persistent invocation with, for
+example, `constraintloop setup --hook-executable "pipx run constraintloop"`.
 
 The five commands above establish this flow:
 
@@ -119,6 +124,10 @@ constraints:
     command: [python, -m, pytest, -q]
     phases: [stop, ci]
     watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
+    retry:
+      max_attempts: 3
+      exit_codes: [1]
+      delay_seconds: 2
 
   coverage:
     kind: metric
@@ -222,6 +231,13 @@ stale without a mutable invalidation list. Local state lives under the
 gitignored `.constraintloop/state` directory; set `CONSTRAINTLOOP_CACHE_DIR` to
 override it.
 
+For stronger machine-local gates, create a gitignored
+`constraintloop.local.yml`. ConstraintLoop recursively merges mappings over the
+repository contract and rejects changes that could weaken committed gates.
+The authoritative `constraintloop ci` command ignores this overlay.
+`init` and `setup` add the overlay names and `.constraintloop/state/` to the
+selected project's `.gitignore`, and warn if state is already tracked.
+
 ### Verdicts and what they mean
 
 | Verdict | Meaning | Can complete? |
@@ -254,7 +270,9 @@ override it.
   running an evaluator or consuming model quota.
 - `constraintloop acknowledge ID --reason "..."` — record an explicit
   snapshot-bound advisory disposition without changing its verdict.
-- `constraintloop doctor` — validate and fingerprint the contract.
+- `constraintloop doctor` — validate and fingerprint the contract;
+  `--deep` also checks executables, Python invocations, referenced environment
+  files and variables, empty watch globs, and local-state hygiene.
 - `constraintloop waive ID --reason "..."` — human-local, snapshot-bound waiver
   for fresh non-passing deterministic evidence. Rubrics cannot be waived.
 - `constraintloop enhance` — write a review-only proposal for stronger tooling.
@@ -296,7 +314,7 @@ responses become `uncertain`; a required rubric therefore fails closed.
 
 ## Compatibility boundary
 
-The supported v0.1 surfaces are the CLI and exit codes, configuration schema,
+The supported v0.2 surfaces are the CLI and exit codes, configuration schema,
 evaluator command protocol, native hook responses, and schema-versioned
 evidence and cycle JSON. Python submodules are internal during initial
 development and are not covered by semantic-versioning compatibility promises.

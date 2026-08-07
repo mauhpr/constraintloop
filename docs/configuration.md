@@ -12,6 +12,18 @@ The root fields are `version` (currently `1`), `settings`, `constraints`,
 | `concurrency` | 4 | 1–32 |
 | `evidence_output_limit` | 65536 | 1024–1048576 bytes |
 | `evaluation_bundle_limit` | 102400 | 4096–2097152 bytes |
+| `progress_interval_seconds` | 15 | 0.1–300 seconds |
+
+If `constraintloop.local.yml` or `constraintloop.local.yaml` exists beside the
+repository contract, it is loaded as a local overlay. Mapping values merge
+recursively. Overlays may add constraints and tighten an existing constraint's
+enforcement, phase set, dependency set, or timeout. They cannot disable or
+replace committed gates, commands, evaluators, loops, watched inputs, or reduce
+evidence limits. Only one overlay filename may exist. The merged contract is
+validated normally and its digest invalidates evidence when local policy
+changes. `init` and `setup` add both overlay names to `.gitignore`. The
+authoritative `constraintloop ci` command ignores local overlays and always
+evaluates the committed repository contract.
 
 Every constraint supports `description`, `enforcement` (`required` or
 `advisory`), `phases` (`change`, `stop`, `ci`), `watch` globs, dependency IDs
@@ -24,6 +36,28 @@ Command constraints use `kind: command`, `command`, `cwd`, `shell`,
 `success_codes`, and `pending_codes` (default `[75]`). Prefer an argv list. A
 string command is rejected unless `shell: true` explicitly accepts shell
 parsing. Success and pending codes may not overlap.
+
+Command and metric constraints may declare an optional transient retry policy:
+
+```yaml
+retry:
+  max_attempts: 3
+  exit_codes: [1, 125]
+  retry_timeouts: false
+  retry_start_errors: true
+  delay_seconds: 2
+  total_timeout_seconds: 90
+```
+
+No retries occur when `retry` is absent. A configured policy retries only the
+listed exit codes and, when enabled, timeouts or process startup failures.
+Every attempt is capped by the constraint's normal timeout. Retry and periodic
+running status lines are emitted during human-readable runs; `--json` remains a
+single machine-readable document. `timeout_seconds` bounds each attempt and,
+unless overridden, the complete retry sequence including delays. Timeout
+retries require an explicit `total_timeout_seconds` greater than the per-attempt
+timeout. This keeps the total bound visible while leaving enough budget for a
+second attempt.
 
 Metric constraints add `parser` and `threshold`. A parser has type `json` or
 `regex`, reads `stdout`, `stderr`, or a project-contained `file`, and selects a
