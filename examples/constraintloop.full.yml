@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mauhpr/constraintloop/main/schema/constraintloop.schema.json
 version: 1
 settings:
   max_auto_retries: 2
@@ -38,6 +39,28 @@ constraints:
     needs: [unit_tests]
     phases: [ci]
     watch: [test-results.xml]
+
+  database_consumers:
+    kind: ratchet
+    description: Prevent growth in legacy database consumers
+    command: [python, scripts/inventory_consumers.py, --json]
+    parser:
+      type: json
+      path: counts.database_consumers
+    mode: must_not_increase
+    phases: [stop, ci]
+    watch: ["src/**/*.py"]
+
+  inventory_report:
+    kind: artifact
+    path: reports/consumer-inventory.json
+    format: json
+    evidence:
+      consumers: counts.database_consumers
+      change: counts.change
+    needs: [database_consumers]
+    phases: [stop, ci]
+    watch: [reports/consumer-inventory.json]
 
   maintainability:
     kind: rubric

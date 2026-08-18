@@ -4,7 +4,18 @@ ConstraintLoop reads the nearest supported YAML contract filename. The schema
 is strict: unknown fields are errors.
 
 The root fields are `version` (currently `1`), `settings`, `constraints`,
-`evaluators`, and `loops`. Settings default to:
+`evaluators`, and `loops`.
+
+The generated JSON Schema is published at
+[`schema/constraintloop.schema.json`](../schema/constraintloop.schema.json).
+Editors that support YAML language-server directives can enable validation and
+autocomplete with:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mauhpr/constraintloop/main/schema/constraintloop.schema.json
+```
+
+Settings default to:
 
 | Field | Default | Allowed |
 | --- | ---: | --- |
@@ -37,7 +48,8 @@ Command constraints use `kind: command`, `command`, `cwd`, `shell`,
 string command is rejected unless `shell: true` explicitly accepts shell
 parsing. Success and pending codes may not overlap.
 
-Command and metric constraints may declare an optional transient retry policy:
+Command, metric, and ratchet constraints may declare an optional transient
+retry policy:
 
 ```yaml
 retry:
@@ -64,8 +76,37 @@ Metric constraints add `parser` and `threshold`. A parser has type `json` or
 dotted JSON `path` or regex `pattern` and `group`. Threshold operators are
 `gt`, `gte`, `lt`, `lte`, and `eq`.
 
+Ratchet constraints use `kind: ratchet` with the same command and parser fields
+as a metric. Their default `mode: must_not_increase` compares the current value
+to the committed `constraintloop-baselines.json`; `must_not_decrease` supports
+monotonic growth metrics. Initialize or strengthen baselines explicitly:
+
+```bash
+constraintloop baseline update database_consumers
+constraintloop baseline update --all
+```
+
+Updates that would weaken an existing baseline are rejected. Use
+`--allow-regression` only for a reviewed, intentional reset, then commit the
+baseline artifact with the contract. `baseline_file` can select another
+project-relative JSON file. Each baseline entry records both the numeric value
+and the SHA-256 digest of the parsed evidence source, replacing the separate
+count-and-hash bookkeeping commonly used for migration inventories.
+
 Artifact constraints use `kind: artifact`, a project-contained `path`, format
-`any`, `json`, or `junit`, and `non_empty`.
+`any`, `json`, or `junit`, and `non_empty`. JSON artifacts can expose selected
+dotted paths as structured evidence so summaries and `status` show meaningful
+counts instead of the entire report:
+
+```yaml
+report:
+  kind: artifact
+  path: reports/consumer-inventory.json
+  format: json
+  evidence:
+    consumers: counts.consumers
+    change: counts.change
+```
 
 Rubric constraints use `kind: rubric`, an evaluator ID, a written `rubric`,
 `include` globs, `runs`, and `pass_quorum`. Required rubrics need at least two
@@ -86,4 +127,10 @@ exhaustion actions. Unknown fields and zero or unbounded budgets are rejected.
 At most one Stop-phase loop is allowed. Ready deterministic constraints execute
 concurrently up to `settings.concurrency`; rubric evaluators remain serialized
 and result ordering follows the contract.
+`constraintloop explain --phase stop` reports why every constraint is eligible
+or skipped, the files matched by its watch globs, changed watch paths, cache
+state, and dependency chains without executing any gate. Human-readable final
+summaries label concrete policy failures as `constraint` and startup,
+prerequisite, or evaluation errors as `environment`; the same
+`failure_category` is retained in JSON evidence.
 See `docs/convergence-loops.md` for the cycle protocol and stable exit codes.

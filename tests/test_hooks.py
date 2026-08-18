@@ -125,7 +125,7 @@ def test_setup_pins_uvx_and_supports_explicit_hook_executable(tmp_path: Path, mo
     command = json.loads(path.read_text(encoding="utf-8"))["hooks"]["Stop"][0]["hooks"][0][
         "command"
     ]
-    assert command.startswith("uvx --from constraintloop==0.2.0 constraintloop hook")
+    assert command.startswith("uvx --from constraintloop==0.3.0 constraintloop hook")
 
     path = install_hooks(tmp_path, "codex", hook_executable="pipx run constraintloop")
     command = json.loads(path.read_text(encoding="utf-8"))["hooks"]["Stop"][0]["hooks"][0][

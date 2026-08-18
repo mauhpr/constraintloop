@@ -6,12 +6,14 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 from constraintloop.digest import matching_files
 from constraintloop.hygiene import GITIGNORE_ENTRIES, is_path_ignored, tracked_state_files
-from constraintloop.models import CommandConstraint, Contract, MetricConstraint
+from constraintloop.models import CommandConstraint, Contract, MetricConstraint, RatchetConstraint
+from constraintloop.state import load_ratchet_baseline
 
 _ENV_REFERENCE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 
@@ -21,6 +23,7 @@ def deep_diagnostics(
 ) -> list[str]:
     issues: list[str] = []
     issues.extend(_repository_hygiene_issues(project_root))
+    issues.extend(_worktree_prerequisite_issues(project_root))
     available = {**project_environment, **os.environ}
     for evaluator_id, evaluator in contract.evaluators.items():
         api_key_env = getattr(evaluator, "api_key_env", None)
@@ -31,7 +34,15 @@ def deep_diagnostics(
     for constraint_id, spec in contract.constraints.items():
         if spec.enabled and not matching_files(project_root, spec.watch):
             issues.append(f"constraint {constraint_id}: watch globs match no files")
-        if not isinstance(spec, (CommandConstraint, MetricConstraint)):
+        if (
+            isinstance(spec, RatchetConstraint)
+            and load_ratchet_baseline(project_root, spec.baseline_file, constraint_id) is None
+        ):
+            issues.append(
+                f"constraint {constraint_id}: ratchet baseline is missing from "
+                f"{spec.baseline_file}; run 'constraintloop baseline update {constraint_id}'"
+            )
+        if not isinstance(spec, (CommandConstraint, MetricConstraint, RatchetConstraint)):
             continue
         cwd = (project_root / spec.cwd).resolve()
         if not cwd.is_dir():
@@ -43,6 +54,18 @@ def deep_diagnostics(
         executable = tokens[0]
         if not spec.shell and _resolve_executable(cwd, executable) is None:
             issues.append(f"constraint {constraint_id}: executable not found: {executable}")
+            if executable.startswith((".venv/", "venv/")):
+                issues.append(
+                    f"constraint {constraint_id}: virtual environment prerequisite is missing; "
+                    f"expected {executable}"
+                )
+            if Path(executable).name in {"docker", "docker-compose", "podman"}:
+                issues.append(
+                    f"constraint {constraint_id}: container runtime prerequisite is unavailable: "
+                    f"{Path(executable).name}"
+                )
+        elif Path(executable).name == "docker":
+            issues.extend(_docker_runtime_issues(constraint_id, cwd, executable))
         joined = spec.command if isinstance(spec.command, str) else " ".join(spec.command)
         for match in _ENV_REFERENCE.finditer(joined):
             name = match.group(1) or match.group(2)
@@ -53,6 +76,39 @@ def deep_diagnostics(
         issues.extend(_python_invocation_issues(constraint_id, cwd, tokens))
         issues.extend(_referenced_env_file_issues(constraint_id, cwd, tokens))
     return issues
+
+
+def _worktree_prerequisite_issues(project_root: Path) -> list[str]:
+    issues: list[str] = []
+    linked_worktree = (project_root / ".git").is_file()
+    context = "linked worktree" if linked_worktree else "worktree"
+    for example in sorted(project_root.glob(".env*.example")):
+        expected = example.with_name(example.name.removesuffix(".example"))
+        if not expected.exists():
+            issues.append(
+                f"{context} prerequisite: {expected.name} is missing (template: {example.name})"
+            )
+    return issues
+
+
+def _docker_runtime_issues(constraint_id: str, cwd: Path, executable: str) -> list[str]:
+    try:
+        result = subprocess.run(
+            [executable, "info", "--format", "{{.ServerVersion}}"],
+            cwd=cwd,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return [f"constraint {constraint_id}: Docker daemon check failed: {exc}"]
+    if result.returncode:
+        message = (result.stderr or result.stdout).strip().splitlines()
+        detail = message[-1] if message else f"exit code {result.returncode}"
+        return [f"constraint {constraint_id}: Docker daemon is unavailable: {detail}"]
+    return []
 
 
 def _repository_hygiene_issues(project_root: Path) -> list[str]:

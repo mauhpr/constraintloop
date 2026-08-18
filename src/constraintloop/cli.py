@@ -8,7 +8,7 @@ import shlex
 import shutil
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 
@@ -18,7 +18,7 @@ from constraintloop.config import (
     load_contract,
 )
 from constraintloop.diagnostics import deep_diagnostics
-from constraintloop.digest import constraint_input_digest
+from constraintloop.digest import changed_files, constraint_input_digest, matching_files
 from constraintloop.engine import ConstraintEngine, format_summary
 from constraintloop.environment import load_project_environment, project_environment_path
 from constraintloop.hooks import handle_hook
@@ -29,9 +29,11 @@ from constraintloop.models import (
     Enforcement,
     LoopState,
     Phase,
+    RatchetConstraint,
     RubricConstraint,
     Verdict,
 )
+from constraintloop.runners import measure_ratchet_constraint
 from constraintloop.scaffold import (
     authoring_proposal,
     enhancement_proposal,
@@ -44,6 +46,8 @@ from constraintloop.state import (
     create_waiver,
     load_cached_result,
     load_latest_result,
+    load_ratchet_baseline,
+    save_ratchet_baseline,
 )
 
 
@@ -262,6 +266,177 @@ def status_command(project: Path) -> None:
             click.echo(f"STALE {constraint_id}: no evidence for current inputs")
         else:
             click.echo(f"{result.verdict.value.upper()} {constraint_id}: {result.message}")
+            if result.details:
+                click.echo(
+                    "  evidence: "
+                    + ", ".join(
+                        f"{name}={_format_status_value(value)}"
+                        for name, value in result.details.items()
+                    )
+                )
+
+
+def _format_status_value(value: object) -> str:
+    if isinstance(value, float):
+        return f"{value:g}"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return str(value)
+
+
+@main.command("explain")
+@click.option("--phase", type=click.Choice(["change", "stop", "ci"]), default="stop")
+@click.option("--project", type=click.Path(path_type=Path), default=Path("."))
+@click.option("--json", "json_output", is_flag=True)
+def explain_command(phase: str, project: Path, json_output: bool) -> None:
+    """Explain constraint eligibility, watch matches, cache state, and dependencies."""
+    root = _root(project)
+    selected_phase = Phase(phase)
+    try:
+        contract, _ = load_contract(root, include_local=selected_phase != Phase.CI)
+    except ContractError as exc:
+        raise click.ClickException(str(exc)) from exc
+    identity = contract_digest(contract)
+    changed = set(changed_files(root))
+    explanations: list[dict[str, object]] = []
+    for constraint_id, spec in contract.constraints.items():
+        watched = [path.relative_to(root).as_posix() for path in matching_files(root, spec.watch)]
+        changed_matches = sorted(changed.intersection(watched))
+        if not spec.enabled:
+            decision, reason = "skip", "constraint is disabled"
+        elif selected_phase not in spec.phases:
+            decision, reason = "skip", f"phase {selected_phase.value!r} is not configured"
+        else:
+            decision = "run"
+            reason = f"enabled for phase {selected_phase.value!r}"
+        digest = constraint_input_digest(root, constraint_id, spec, contract_digest=identity)
+        cached = (
+            load_latest_result(root, constraint_id)
+            if isinstance(spec, RubricConstraint)
+            else load_cached_result(root, constraint_id, digest)
+        )
+        if cached is not None and cached.input_digest != digest:
+            cached = None
+        explanations.append(
+            {
+                "constraint_id": constraint_id,
+                "kind": spec.kind,
+                "decision": decision,
+                "reason": reason,
+                "watch_patterns": spec.watch,
+                "matched_watch_paths": watched,
+                "changed_watch_paths": changed_matches,
+                "dependency_chains": _dependency_chains(contract, constraint_id),
+                "cache": "fresh" if cached is not None else "stale",
+            }
+        )
+    if json_output:
+        click.echo(
+            json.dumps({"phase": selected_phase.value, "constraints": explanations}, indent=2)
+        )
+        return
+    click.echo(f"ConstraintLoop explain: phase={selected_phase.value}")
+    for item in explanations:
+        click.echo(
+            f"- {str(item['decision']).upper()} {item['constraint_id']} ({item['kind']}): "
+            f"{item['reason']}; cache={item['cache']}"
+        )
+        matched_paths = cast(list[str], item["matched_watch_paths"])
+        changed_paths = cast(list[str], item["changed_watch_paths"])
+        click.echo(
+            "  watch: " + (", ".join(matched_paths) if matched_paths else "no matching files")
+        )
+        click.echo(
+            "  changed watch paths: " + (", ".join(changed_paths) if changed_paths else "none")
+        )
+        chains = cast(list[str], item["dependency_chains"])
+        click.echo("  dependencies: " + ("; ".join(chains) if chains else "none"))
+
+
+def _dependency_chains(contract: Any, constraint_id: str) -> list[str]:
+    def paths(node: str) -> list[list[str]]:
+        dependencies = contract.constraints[node].needs
+        if not dependencies:
+            return [[node]]
+        return [chain + [node] for dependency in dependencies for chain in paths(dependency)]
+
+    return [" -> ".join(chain) for chain in paths(constraint_id) if len(chain) > 1]
+
+
+@main.group("baseline")
+def baseline_group() -> None:
+    """Manage committed ratchet baselines."""
+
+
+@baseline_group.command("update")
+@click.argument("constraint_ids", nargs=-1)
+@click.option("--all", "update_all", is_flag=True, help="Update every ratchet constraint.")
+@click.option(
+    "--allow-regression",
+    is_flag=True,
+    help="Allow an update that weakens an existing baseline.",
+)
+@click.option("--project", type=click.Path(path_type=Path), default=Path("."))
+def baseline_update_command(
+    constraint_ids: tuple[str, ...], update_all: bool, allow_regression: bool, project: Path
+) -> None:
+    """Measure ratchets and update their explicit baseline artifact."""
+    root = _root(project)
+    try:
+        contract, _ = load_contract(root)
+    except ContractError as exc:
+        raise click.ClickException(str(exc)) from exc
+    ratchets = {
+        constraint_id: spec
+        for constraint_id, spec in contract.constraints.items()
+        if isinstance(spec, RatchetConstraint)
+    }
+    if update_all and constraint_ids:
+        raise click.ClickException("Choose constraint IDs or --all, not both")
+    selected = list(ratchets) if update_all else list(constraint_ids)
+    if not selected:
+        raise click.ClickException("Provide at least one ratchet constraint ID or --all")
+    unknown = [constraint_id for constraint_id in selected if constraint_id not in ratchets]
+    if unknown:
+        raise click.ClickException("Unknown ratchet constraint(s): " + ", ".join(unknown))
+
+    identity = contract_digest(contract)
+    measurements: list[tuple[str, RatchetConstraint, float, float | None, str | None]] = []
+    for constraint_id in selected:
+        spec = ratchets[constraint_id]
+        digest = constraint_input_digest(root, constraint_id, spec, contract_digest=identity)
+        result = measure_ratchet_constraint(
+            root,
+            constraint_id,
+            spec,
+            digest,
+            contract.settings.evidence_output_limit,
+        )
+        if result.verdict != Verdict.PASS or result.value is None:
+            raise click.ClickException(f"Could not measure {constraint_id}: {result.message}")
+        previous = load_ratchet_baseline(root, spec.baseline_file, constraint_id)
+        weakens = previous is not None and (
+            (spec.mode == "must_not_increase" and result.value > previous)
+            or (spec.mode == "must_not_decrease" and result.value < previous)
+        )
+        if weakens and not allow_regression:
+            raise click.ClickException(
+                f"Refusing to weaken {constraint_id} from {previous:g} to {result.value:g}; "
+                "use --allow-regression for an intentional reset"
+            )
+        measurements.append((constraint_id, spec, result.value, previous, result.evidence_sha256))
+
+    for constraint_id, spec, value, previous, evidence_sha256 in measurements:
+        try:
+            path = save_ratchet_baseline(
+                root, spec.baseline_file, constraint_id, value, evidence_sha256
+            )
+        except (OSError, ValueError) as exc:
+            raise click.ClickException(
+                f"Could not update baseline for {constraint_id}: {exc}"
+            ) from exc
+        prior = "new" if previous is None else f"was {previous:g}"
+        click.echo(f"Updated {constraint_id}: {value:g} ({prior}) in {path.relative_to(root)}")
 
 
 @main.command("doctor")

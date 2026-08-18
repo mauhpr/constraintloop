@@ -10,7 +10,7 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
-from constraintloop.models import ConstraintSpec
+from constraintloop.models import ConstraintSpec, RatchetConstraint
 
 _IGNORED_PARTS = {
     ".git",
@@ -71,6 +71,13 @@ def constraint_input_digest(
     digest.update(
         json.dumps(spec.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()
     )
+    if isinstance(spec, RatchetConstraint):
+        baseline_path = (project_root / spec.baseline_file).resolve()
+        try:
+            baseline_path.relative_to(project_root.resolve())
+            digest.update(baseline_path.read_bytes())
+        except (OSError, ValueError) as exc:
+            digest.update(f"<missing-baseline:{exc}>".encode())
     for path in matching_files(project_root, spec.watch):
         relative = path.relative_to(project_root).as_posix()
         digest.update(relative.encode())

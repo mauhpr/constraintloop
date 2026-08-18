@@ -8,12 +8,20 @@ from pathlib import Path
 import pytest
 
 import constraintloop.runners as runners_module
-from constraintloop.models import ArtifactConstraint, CommandConstraint, MetricConstraint
+from constraintloop.models import (
+    ArtifactConstraint,
+    CommandConstraint,
+    MetricConstraint,
+    RatchetConstraint,
+)
 from constraintloop.runners import (
+    measure_ratchet_constraint,
     run_artifact_constraint,
     run_command_constraint,
     run_metric_constraint,
+    run_ratchet_constraint,
 )
+from constraintloop.state import save_ratchet_baseline
 
 
 def test_command_runner_success_failure_errors_and_truncation(tmp_path: Path) -> None:
@@ -200,3 +208,120 @@ def test_artifact_runner_rejects_missing_empty_invalid_and_escape(tmp_path: Path
     (tmp_path / "bad.json").write_text("{", encoding="utf-8")
     assert run("bad.json", format="json") == "fail"
     assert run("../outside") == "error"
+
+
+def test_ratchet_compares_against_committed_baseline(tmp_path: Path) -> None:
+    spec = RatchetConstraint.model_validate(
+        {
+            "kind": "ratchet",
+            "command": [sys.executable, "-c", "print('{\"count\": 5}')"],
+            "parser": {"type": "json", "path": "count"},
+        }
+    )
+    missing = run_ratchet_constraint(tmp_path, "consumers", spec, "d", 1024)
+    assert missing.verdict.value == "error"
+    assert missing.failure_category == "environment"
+
+    save_ratchet_baseline(tmp_path, spec.baseline_file, "consumers", 6)
+    passing = run_ratchet_constraint(tmp_path, "consumers", spec, "d", 1024)
+    assert passing.verdict.value == "pass"
+    assert passing.details["value"] == 5.0
+    assert passing.details["baseline"] == 6.0
+    assert passing.details["change"] == -1.0
+    assert passing.details["mode"] == "must_not_increase"
+    assert len(str(passing.details["evidence_sha256"])) == 64
+
+    save_ratchet_baseline(tmp_path, spec.baseline_file, "consumers", 4)
+    failing = run_ratchet_constraint(tmp_path, "consumers", spec, "d", 1024)
+    assert failing.verdict.value == "fail"
+    assert failing.delta == 1
+    assert failing.failure_category == "constraint"
+
+
+def test_json_artifact_extracts_structured_evidence(tmp_path: Path) -> None:
+    (tmp_path / "report.json").write_text(
+        json.dumps({"counts": {"consumers": 12, "change": -3}}), encoding="utf-8"
+    )
+    spec = ArtifactConstraint.model_validate(
+        {
+            "kind": "artifact",
+            "path": "report.json",
+            "format": "json",
+            "evidence": {"consumers": "counts.consumers", "change": "counts.change"},
+        }
+    )
+
+    result = run_artifact_constraint(tmp_path, "report", spec, "d")
+
+    assert result.verdict.value == "pass"
+    assert result.details == {"consumers": 12, "change": -3}
+
+
+def test_ratchet_measurement_failure_modes(tmp_path: Path) -> None:
+    base = RatchetConstraint.model_validate(
+        {
+            "kind": "ratchet",
+            "command": [sys.executable, "-c", "print('{\"count\": 1}')"],
+            "parser": {"type": "json", "path": "count"},
+        }
+    )
+
+    startup = measure_ratchet_constraint(
+        tmp_path, "startup", base.model_copy(update={"cwd": "missing"}), "d", 1024
+    )
+    assert startup.verdict.value == "error"
+
+    pending = measure_ratchet_constraint(
+        tmp_path,
+        "pending",
+        base.model_copy(update={"command": [sys.executable, "-c", "raise SystemExit(75)"]}),
+        "d",
+        1024,
+    )
+    assert pending.verdict.value == "pending"
+
+    failed = measure_ratchet_constraint(
+        tmp_path,
+        "failed",
+        base.model_copy(update={"command": [sys.executable, "-c", "raise SystemExit(2)"]}),
+        "d",
+        1024,
+    )
+    assert failed.verdict.value == "fail"
+
+    invalid = measure_ratchet_constraint(
+        tmp_path,
+        "invalid",
+        base.model_copy(update={"command": [sys.executable, "-c", "print('{}')"]}),
+        "d",
+        1024,
+    )
+    assert invalid.verdict.value == "error"
+    assert "Could not parse ratchet metric" in invalid.message
+
+    propagated = run_ratchet_constraint(
+        tmp_path,
+        "propagated",
+        base.model_copy(update={"command": [sys.executable, "-c", "raise SystemExit(75)"]}),
+        "d",
+        1024,
+    )
+    assert propagated.verdict.value == "pending"
+
+
+def test_must_not_decrease_ratchet_and_baseline_digest(tmp_path: Path) -> None:
+    spec = RatchetConstraint.model_validate(
+        {
+            "kind": "ratchet",
+            "command": [sys.executable, "-c", "print('{\"count\": 5}')"],
+            "parser": {"type": "json", "path": "count"},
+            "mode": "must_not_decrease",
+        }
+    )
+    digest = "a" * 64
+    save_ratchet_baseline(tmp_path, spec.baseline_file, "coverage", 4, digest)
+
+    result = run_ratchet_constraint(tmp_path, "coverage", spec, "d", 1024)
+
+    assert result.verdict.value == "pass"
+    assert result.details["baseline_evidence_sha256"] == digest

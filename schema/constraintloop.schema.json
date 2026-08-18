@@ -1,0 +1,1072 @@
+{
+  "$defs": {
+    "AnthropicEvaluatorConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "api_key_env": {
+          "default": "ANTHROPIC_API_KEY",
+          "title": "Api Key Env",
+          "type": "string"
+        },
+        "max_attempts": {
+          "default": 2,
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "max_output_tokens": {
+          "default": 2048,
+          "maximum": 16384,
+          "minimum": 256,
+          "title": "Max Output Tokens",
+          "type": "integer"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "type": {
+          "const": "anthropic",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "model"
+      ],
+      "title": "AnthropicEvaluatorConfig",
+      "type": "object"
+    },
+    "ArtifactConstraint": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "enforcement": {
+          "$ref": "#/$defs/Enforcement",
+          "default": "required"
+        },
+        "evidence": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Evidence",
+          "type": "object"
+        },
+        "format": {
+          "default": "any",
+          "enum": [
+            "any",
+            "json",
+            "junit"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "kind": {
+          "const": "artifact",
+          "title": "Kind",
+          "type": "string"
+        },
+        "needs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Needs",
+          "type": "array"
+        },
+        "non_empty": {
+          "default": true,
+          "title": "Non Empty",
+          "type": "boolean"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/$defs/Phase"
+          },
+          "title": "Phases",
+          "type": "array"
+        },
+        "timeout_seconds": {
+          "default": 300.0,
+          "exclusiveMinimum": 0,
+          "maximum": 7200,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "watch": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Watch",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "title": "ArtifactConstraint",
+      "type": "object"
+    },
+    "CommandConstraint": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Command"
+        },
+        "cwd": {
+          "default": ".",
+          "title": "Cwd",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "enforcement": {
+          "$ref": "#/$defs/Enforcement",
+          "default": "required"
+        },
+        "kind": {
+          "const": "command",
+          "title": "Kind",
+          "type": "string"
+        },
+        "needs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Needs",
+          "type": "array"
+        },
+        "pending_codes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Pending Codes",
+          "type": "array"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/$defs/Phase"
+          },
+          "title": "Phases",
+          "type": "array"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandRetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shell": {
+          "default": false,
+          "title": "Shell",
+          "type": "boolean"
+        },
+        "success_codes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Success Codes",
+          "type": "array"
+        },
+        "timeout_seconds": {
+          "default": 300.0,
+          "exclusiveMinimum": 0,
+          "maximum": 7200,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "watch": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Watch",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "command"
+      ],
+      "title": "CommandConstraint",
+      "type": "object"
+    },
+    "CommandEvaluatorConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Command"
+        },
+        "shell": {
+          "default": false,
+          "title": "Shell",
+          "type": "boolean"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "type": {
+          "const": "command",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "title": "CommandEvaluatorConfig",
+      "type": "object"
+    },
+    "CommandRetryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "delay_seconds": {
+          "default": 1.0,
+          "maximum": 300,
+          "minimum": 0,
+          "title": "Delay Seconds",
+          "type": "number"
+        },
+        "exit_codes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Exit Codes",
+          "type": "array"
+        },
+        "max_attempts": {
+          "default": 2,
+          "maximum": 10,
+          "minimum": 2,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "retry_start_errors": {
+          "default": true,
+          "title": "Retry Start Errors",
+          "type": "boolean"
+        },
+        "retry_timeouts": {
+          "default": false,
+          "title": "Retry Timeouts",
+          "type": "boolean"
+        },
+        "total_timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 7200,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Timeout Seconds"
+        }
+      },
+      "title": "CommandRetryPolicy",
+      "type": "object"
+    },
+    "ContractSettings": {
+      "additionalProperties": false,
+      "properties": {
+        "concurrency": {
+          "default": 4,
+          "maximum": 32,
+          "minimum": 1,
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "evaluation_bundle_limit": {
+          "default": 102400,
+          "maximum": 2097152,
+          "minimum": 4096,
+          "title": "Evaluation Bundle Limit",
+          "type": "integer"
+        },
+        "evidence_output_limit": {
+          "default": 65536,
+          "maximum": 1048576,
+          "minimum": 1024,
+          "title": "Evidence Output Limit",
+          "type": "integer"
+        },
+        "max_auto_retries": {
+          "default": 2,
+          "maximum": 20,
+          "minimum": 0,
+          "title": "Max Auto Retries",
+          "type": "integer"
+        },
+        "progress_interval_seconds": {
+          "default": 15.0,
+          "maximum": 300,
+          "minimum": 0.1,
+          "title": "Progress Interval Seconds",
+          "type": "number"
+        }
+      },
+      "title": "ContractSettings",
+      "type": "object"
+    },
+    "Enforcement": {
+      "enum": [
+        "required",
+        "advisory"
+      ],
+      "title": "Enforcement",
+      "type": "string"
+    },
+    "LoopConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "interval_seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 86400,
+          "title": "Interval Seconds",
+          "type": "number"
+        },
+        "max_duration_seconds": {
+          "exclusiveMinimum": 0,
+          "maximum": 2592000,
+          "title": "Max Duration Seconds",
+          "type": "number"
+        },
+        "max_repair_attempts": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Repair Attempts",
+          "type": "integer"
+        },
+        "max_unchanged_repairs": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Unchanged Repairs",
+          "type": "integer"
+        },
+        "on_budget_exhausted": {
+          "const": "human_required",
+          "default": "human_required",
+          "title": "On Budget Exhausted",
+          "type": "string"
+        },
+        "on_failure": {
+          "const": "repair",
+          "default": "repair",
+          "title": "On Failure",
+          "type": "string"
+        },
+        "on_pass": {
+          "const": "stop",
+          "default": "stop",
+          "title": "On Pass",
+          "type": "string"
+        },
+        "on_pending": {
+          "const": "wait",
+          "default": "wait",
+          "title": "On Pending",
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/$defs/Phase"
+        }
+      },
+      "required": [
+        "phase",
+        "interval_seconds",
+        "max_repair_attempts",
+        "max_unchanged_repairs",
+        "max_duration_seconds"
+      ],
+      "title": "LoopConfig",
+      "type": "object"
+    },
+    "MetricConstraint": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Command"
+        },
+        "cwd": {
+          "default": ".",
+          "title": "Cwd",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "enforcement": {
+          "$ref": "#/$defs/Enforcement",
+          "default": "required"
+        },
+        "kind": {
+          "const": "metric",
+          "title": "Kind",
+          "type": "string"
+        },
+        "needs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Needs",
+          "type": "array"
+        },
+        "parser": {
+          "$ref": "#/$defs/MetricParser"
+        },
+        "pending_codes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Pending Codes",
+          "type": "array"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/$defs/Phase"
+          },
+          "title": "Phases",
+          "type": "array"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandRetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shell": {
+          "default": false,
+          "title": "Shell",
+          "type": "boolean"
+        },
+        "success_codes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Success Codes",
+          "type": "array"
+        },
+        "threshold": {
+          "$ref": "#/$defs/MetricThreshold"
+        },
+        "timeout_seconds": {
+          "default": 300.0,
+          "exclusiveMinimum": 0,
+          "maximum": 7200,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "watch": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Watch",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "command",
+        "parser",
+        "threshold"
+      ],
+      "title": "MetricConstraint",
+      "type": "object"
+    },
+    "MetricParser": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "File"
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "default": 1,
+          "title": "Group"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "pattern": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pattern"
+        },
+        "source": {
+          "default": "stdout",
+          "enum": [
+            "stdout",
+            "stderr",
+            "file"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "json",
+            "regex"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "MetricParser",
+      "type": "object"
+    },
+    "MetricThreshold": {
+      "additionalProperties": false,
+      "properties": {
+        "operator": {
+          "enum": [
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "eq"
+          ],
+          "title": "Operator",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "operator",
+        "value"
+      ],
+      "title": "MetricThreshold",
+      "type": "object"
+    },
+    "OpenAIEvaluatorConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "api_key_env": {
+          "default": "OPENAI_API_KEY",
+          "title": "Api Key Env",
+          "type": "string"
+        },
+        "max_attempts": {
+          "default": 2,
+          "maximum": 5,
+          "minimum": 1,
+          "title": "Max Attempts",
+          "type": "integer"
+        },
+        "max_output_tokens": {
+          "default": 2000,
+          "maximum": 16384,
+          "minimum": 256,
+          "title": "Max Output Tokens",
+          "type": "integer"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "default": "minimal",
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Reasoning Effort",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "maximum": 600,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "type": {
+          "const": "openai",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "model"
+      ],
+      "title": "OpenAIEvaluatorConfig",
+      "type": "object"
+    },
+    "Phase": {
+      "enum": [
+        "change",
+        "stop",
+        "ci"
+      ],
+      "title": "Phase",
+      "type": "string"
+    },
+    "RatchetConstraint": {
+      "additionalProperties": false,
+      "properties": {
+        "baseline_file": {
+          "default": "constraintloop-baselines.json",
+          "title": "Baseline File",
+          "type": "string"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Command"
+        },
+        "cwd": {
+          "default": ".",
+          "title": "Cwd",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "enforcement": {
+          "$ref": "#/$defs/Enforcement",
+          "default": "required"
+        },
+        "kind": {
+          "const": "ratchet",
+          "title": "Kind",
+          "type": "string"
+        },
+        "mode": {
+          "default": "must_not_increase",
+          "enum": [
+            "must_not_increase",
+            "must_not_decrease"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "needs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Needs",
+          "type": "array"
+        },
+        "parser": {
+          "$ref": "#/$defs/MetricParser"
+        },
+        "pending_codes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Pending Codes",
+          "type": "array"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/$defs/Phase"
+          },
+          "title": "Phases",
+          "type": "array"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CommandRetryPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shell": {
+          "default": false,
+          "title": "Shell",
+          "type": "boolean"
+        },
+        "success_codes": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Success Codes",
+          "type": "array"
+        },
+        "timeout_seconds": {
+          "default": 300.0,
+          "exclusiveMinimum": 0,
+          "maximum": 7200,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "watch": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Watch",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "command",
+        "parser"
+      ],
+      "title": "RatchetConstraint",
+      "type": "object"
+    },
+    "RubricConstraint": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "enforcement": {
+          "$ref": "#/$defs/Enforcement",
+          "default": "required"
+        },
+        "evaluator": {
+          "title": "Evaluator",
+          "type": "string"
+        },
+        "include": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Include",
+          "type": "array"
+        },
+        "kind": {
+          "const": "rubric",
+          "title": "Kind",
+          "type": "string"
+        },
+        "needs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Needs",
+          "type": "array"
+        },
+        "pass_quorum": {
+          "anyOf": [
+            {
+              "maximum": 9,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pass Quorum"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/$defs/Phase"
+          },
+          "title": "Phases",
+          "type": "array"
+        },
+        "rubric": {
+          "title": "Rubric",
+          "type": "string"
+        },
+        "runs": {
+          "default": 1,
+          "maximum": 9,
+          "minimum": 1,
+          "title": "Runs",
+          "type": "integer"
+        },
+        "timeout_seconds": {
+          "default": 300.0,
+          "exclusiveMinimum": 0,
+          "maximum": 7200,
+          "title": "Timeout Seconds",
+          "type": "number"
+        },
+        "watch": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Watch",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "evaluator",
+        "rubric"
+      ],
+      "title": "RubricConstraint",
+      "type": "object"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/mauhpr/constraintloop/main/schema/constraintloop.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "constraints": {
+      "additionalProperties": {
+        "discriminator": {
+          "mapping": {
+            "artifact": "#/$defs/ArtifactConstraint",
+            "command": "#/$defs/CommandConstraint",
+            "metric": "#/$defs/MetricConstraint",
+            "ratchet": "#/$defs/RatchetConstraint",
+            "rubric": "#/$defs/RubricConstraint"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/CommandConstraint"
+          },
+          {
+            "$ref": "#/$defs/MetricConstraint"
+          },
+          {
+            "$ref": "#/$defs/RatchetConstraint"
+          },
+          {
+            "$ref": "#/$defs/ArtifactConstraint"
+          },
+          {
+            "$ref": "#/$defs/RubricConstraint"
+          }
+        ]
+      },
+      "title": "Constraints",
+      "type": "object"
+    },
+    "evaluators": {
+      "additionalProperties": {
+        "discriminator": {
+          "mapping": {
+            "anthropic": "#/$defs/AnthropicEvaluatorConfig",
+            "command": "#/$defs/CommandEvaluatorConfig",
+            "openai": "#/$defs/OpenAIEvaluatorConfig"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/OpenAIEvaluatorConfig"
+          },
+          {
+            "$ref": "#/$defs/AnthropicEvaluatorConfig"
+          },
+          {
+            "$ref": "#/$defs/CommandEvaluatorConfig"
+          }
+        ]
+      },
+      "title": "Evaluators",
+      "type": "object"
+    },
+    "loops": {
+      "additionalProperties": {
+        "$ref": "#/$defs/LoopConfig"
+      },
+      "title": "Loops",
+      "type": "object"
+    },
+    "settings": {
+      "$ref": "#/$defs/ContractSettings"
+    },
+    "version": {
+      "const": 1,
+      "default": 1,
+      "title": "Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "constraints"
+  ],
+  "title": "Contract",
+  "type": "object"
+}
