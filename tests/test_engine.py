@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 
 from constraintloop.config import contract_digest
-from constraintloop.engine import ConstraintEngine
+from constraintloop.engine import ConstraintEngine, format_summary
 from constraintloop.models import (
     ConstraintResult,
     Contract,
@@ -459,3 +459,24 @@ def test_ready_deterministic_constraints_run_concurrently_in_contract_order(
         "second",
         "third",
     ]
+
+
+def test_summary_formats_nested_structured_evidence(tmp_path: Path) -> None:
+    contract = Contract.model_validate(
+        {
+            "constraints": {
+                "report": {
+                    "kind": "artifact",
+                    "path": "report.json",
+                    "format": "json",
+                    "evidence": {"counts": "counts"},
+                    "phases": ["stop"],
+                }
+            }
+        }
+    )
+    (tmp_path / "report.json").write_text('{"counts":{"current":2}}', encoding="utf-8")
+
+    summary = format_summary(ConstraintEngine(tmp_path, contract).run(Phase.STOP))
+
+    assert 'counts={"current":2}' in summary

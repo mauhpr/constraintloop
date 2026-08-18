@@ -80,6 +80,19 @@ def test_contract_rejects_unknown_dependencies_and_evaluators() -> None:
         Contract.model_validate(
             {"constraints": {"a": {"kind": "artifact", "path": "a", "needs": ["missing"]}}}
         )
+    with pytest.raises(ValidationError, match="unknown evaluator"):
+        Contract.model_validate(
+            {
+                "constraints": {
+                    "review": {
+                        "kind": "rubric",
+                        "enforcement": "advisory",
+                        "evaluator": "missing",
+                        "rubric": "review",
+                    }
+                }
+            }
+        )
 
 
 def test_ratchet_and_structured_artifact_models() -> None:
@@ -90,6 +103,7 @@ def test_ratchet_and_structured_artifact_models() -> None:
                     "kind": "ratchet",
                     "command": ["inventory", "--json"],
                     "parser": {"type": "json", "path": "counts.consumers"},
+                    "baseline_file": "baselines.json",
                 },
                 "report": {
                     "kind": "artifact",
@@ -102,6 +116,7 @@ def test_ratchet_and_structured_artifact_models() -> None:
     )
 
     assert contract.constraints["consumer_count"].mode == "must_not_increase"
+    assert contract.constraints["consumer_count"].baseline_file == "baselines.json"
     assert contract.constraints["report"].evidence["change"] == "counts.change"
 
     with pytest.raises(ValidationError, match="structured artifact evidence"):
@@ -116,15 +131,57 @@ def test_ratchet_and_structured_artifact_models() -> None:
                 }
             }
         )
-    with pytest.raises(ValidationError, match="unknown evaluator"):
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"baseline_file": "../outside.json"}, "project-relative"),
+        ({"command": "inventory"}, "string commands"),
+        ({"command": []}, "argv cannot be empty"),
+        ({"success_codes": [0, 75]}, "must not overlap"),
+        (
+            {"retry": {"max_attempts": 2, "exit_codes": [0]}},
+            "retry exit_codes",
+        ),
+        (
+            {
+                "timeout_seconds": 1,
+                "retry": {
+                    "max_attempts": 2,
+                    "exit_codes": [],
+                    "retry_timeouts": True,
+                },
+            },
+            "total_timeout_seconds",
+        ),
+    ],
+)
+def test_ratchet_rejects_unsafe_or_ambiguous_configuration(
+    updates: dict[str, object], message: str
+) -> None:
+    constraint = {
+        "kind": "ratchet",
+        "command": ["inventory"],
+        "parser": {"type": "json", "path": "count"},
+        **updates,
+    }
+
+    with pytest.raises(ValidationError, match=message):
+        Contract.model_validate({"constraints": {"inventory": constraint}})
+
+
+@pytest.mark.parametrize("evidence", [{"": "count"}, {"count": ""}])
+def test_structured_artifact_rejects_empty_evidence_paths(evidence: dict[str, str]) -> None:
+    with pytest.raises(ValidationError, match="must not be empty"):
         Contract.model_validate(
             {
                 "constraints": {
-                    "review": {
-                        "kind": "rubric",
-                        "enforcement": "advisory",
-                        "evaluator": "missing",
-                        "rubric": "review",
+                    "report": {
+                        "kind": "artifact",
+                        "path": "report.json",
+                        "format": "json",
+                        "evidence": evidence,
                     }
                 }
             }
