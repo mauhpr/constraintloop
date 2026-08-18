@@ -80,6 +80,42 @@ def test_contract_rejects_unknown_dependencies_and_evaluators() -> None:
         Contract.model_validate(
             {"constraints": {"a": {"kind": "artifact", "path": "a", "needs": ["missing"]}}}
         )
+
+
+def test_ratchet_and_structured_artifact_models() -> None:
+    contract = Contract.model_validate(
+        {
+            "constraints": {
+                "consumer_count": {
+                    "kind": "ratchet",
+                    "command": ["inventory", "--json"],
+                    "parser": {"type": "json", "path": "counts.consumers"},
+                },
+                "report": {
+                    "kind": "artifact",
+                    "path": "report.json",
+                    "format": "json",
+                    "evidence": {"consumers": "counts.consumers", "change": "counts.change"},
+                },
+            }
+        }
+    )
+
+    assert contract.constraints["consumer_count"].mode == "must_not_increase"
+    assert contract.constraints["report"].evidence["change"] == "counts.change"
+
+    with pytest.raises(ValidationError, match="structured artifact evidence"):
+        Contract.model_validate(
+            {
+                "constraints": {
+                    "report": {
+                        "kind": "artifact",
+                        "path": "report.txt",
+                        "evidence": {"count": "count"},
+                    }
+                }
+            }
+        )
     with pytest.raises(ValidationError, match="unknown evaluator"):
         Contract.model_validate(
             {

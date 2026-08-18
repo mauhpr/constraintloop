@@ -33,8 +33,10 @@ from constraintloop.models import (
     EvaluationBundle,
     EvaluatorCallMetadata,
     EvidenceRecord,
+    FailureCategory,
     MetricConstraint,
     Phase,
+    RatchetConstraint,
     RubricConstraint,
     Verdict,
 )
@@ -42,6 +44,7 @@ from constraintloop.runners import (
     run_artifact_constraint,
     run_command_constraint,
     run_metric_constraint,
+    run_ratchet_constraint,
 )
 from constraintloop.state import load_cached_result, save_cached_result, waiver_reason
 
@@ -96,7 +99,11 @@ class ConstraintEngine:
             runnable: list[
                 tuple[
                     str,
-                    CommandConstraint | MetricConstraint | ArtifactConstraint | RubricConstraint,
+                    CommandConstraint
+                    | MetricConstraint
+                    | RatchetConstraint
+                    | ArtifactConstraint
+                    | RubricConstraint,
                     str,
                 ]
             ] = []
@@ -133,6 +140,11 @@ class ConstraintEngine:
                         message=f"Dependencies are pending: {', '.join(pending_dependencies)}",
                     )
                 elif unavailable:
+                    dependency_categories = {
+                        results[dependency].failure_category
+                        for dependency in unavailable
+                        if dependency in results
+                    }
                     result = ConstraintResult(
                         constraint_id=constraint_id,
                         kind=spec.kind,
@@ -140,6 +152,11 @@ class ConstraintEngine:
                         enforcement=spec.enforcement,
                         input_digest=digest,
                         message=f"Dependencies did not pass: {', '.join(unavailable)}",
+                        failure_category=(
+                            FailureCategory.ENVIRONMENT
+                            if FailureCategory.ENVIRONMENT in dependency_categories
+                            else FailureCategory.CONSTRAINT
+                        ),
                     )
                 else:
                     runnable.append((constraint_id, spec, digest))
@@ -188,7 +205,11 @@ class ConstraintEngine:
     def _run_one(
         self,
         constraint_id: str,
-        spec: CommandConstraint | MetricConstraint | ArtifactConstraint | RubricConstraint,
+        spec: CommandConstraint
+        | MetricConstraint
+        | RatchetConstraint
+        | ArtifactConstraint
+        | RubricConstraint,
         digest: str,
         phase: Phase,
         prior_results: list[ConstraintResult],
@@ -237,6 +258,16 @@ class ConstraintEngine:
             elif isinstance(spec, MetricConstraint):
                 progress_kwargs = {"progress": self._emit} if self.progress is not None else {}
                 result = run_metric_constraint(
+                    self.project_root,
+                    constraint_id,
+                    spec,
+                    digest,
+                    self.contract.settings.evidence_output_limit,
+                    **progress_kwargs,
+                )
+            elif isinstance(spec, RatchetConstraint):
+                progress_kwargs = {"progress": self._emit} if self.progress is not None else {}
+                result = run_ratchet_constraint(
                     self.project_root,
                     constraint_id,
                     spec,
@@ -302,6 +333,7 @@ class ConstraintEngine:
                 input_digest=digest,
                 message=f"Could not load evaluator environment: {exc}",
                 duration_ms=(time.monotonic() - started) * 1000,
+                failure_category=FailureCategory.ENVIRONMENT,
             )
         if self.agent_adapter:
             environment["CONSTRAINTLOOP_CALLER_ADAPTER"] = self.agent_adapter
@@ -337,7 +369,7 @@ class ConstraintEngine:
             verdict = Verdict.FAIL
             message = f"Rubric failed quorum ({passes}/{spec.runs}; required {quorum})"
         details = rationales + errors
-        return ConstraintResult(
+        result = ConstraintResult(
             constraint_id=constraint_id,
             kind=spec.kind,
             verdict=verdict,
@@ -350,6 +382,11 @@ class ConstraintEngine:
             findings=findings,
             evaluator_calls=evaluator_calls,
         )
+        if result.verdict not in {Verdict.PASS, Verdict.SKIPPED, Verdict.WAIVED}:
+            result.failure_category = (
+                FailureCategory.ENVIRONMENT if errors else FailureCategory.CONSTRAINT
+            )
+        return result
 
     def _build_bundle(
         self,
@@ -491,6 +528,15 @@ def format_summary(record: EvidenceRecord, *, include_output: bool = False) -> s
     )
     outcome = "PASS WITH ADVISORIES" if has_advisories else "PASS" if record.passed else "BLOCKED"
     lines = [f"ConstraintLoop {record.phase.value}: {outcome} ({len(record.results)} constraints)"]
+    categories = {
+        category: sum(result.failure_category == category for result in record.results)
+        for category in FailureCategory
+    }
+    visible_categories = [
+        f"{category.value}={count}" for category, count in categories.items() if count
+    ]
+    if visible_categories:
+        lines.append("Failure classes: " + ", ".join(visible_categories))
     icons = {
         Verdict.PASS: "PASS",
         Verdict.PENDING: "PENDING",
@@ -502,7 +548,23 @@ def format_summary(record: EvidenceRecord, *, include_output: bool = False) -> s
     }
     for result in record.results:
         cache = " [cached]" if result.cached else ""
-        lines.append(f"- {icons[result.verdict]} {result.constraint_id}{cache}: {result.message}")
+        category = f" [{result.failure_category.value}]" if result.failure_category else ""
+        lines.append(
+            f"- {icons[result.verdict]} {result.constraint_id}{cache}{category}: {result.message}"
+        )
+        if result.details:
+            details = ", ".join(
+                f"{name}={_format_detail(value)}" for name, value in result.details.items()
+            )
+            lines.append(f"  evidence: {details}")
         if include_output and result.output_tail and result.verdict != Verdict.PASS:
             lines.append(result.output_tail)
     return "\n".join(lines)
+
+
+def _format_detail(value: object) -> str:
+    if isinstance(value, float):
+        return f"{value:g}"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return str(value)

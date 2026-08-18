@@ -35,6 +35,11 @@ class Phase(StrEnum):
     CI = "ci"
 
 
+class FailureCategory(StrEnum):
+    CONSTRAINT = "constraint"
+    ENVIRONMENT = "environment"
+
+
 class ContractSettings(StrictModel):
     max_auto_retries: int = Field(default=2, ge=0, le=20)
     concurrency: int = Field(default=4, ge=1, le=32)
@@ -163,11 +168,66 @@ class MetricConstraint(BaseConstraint):
         return self
 
 
+class RatchetConstraint(BaseConstraint):
+    kind: Literal["ratchet"]
+    command: list[str] | str
+    shell: bool = False
+    cwd: str = "."
+    success_codes: list[int] = Field(default_factory=lambda: [0])
+    pending_codes: list[int] = Field(default_factory=lambda: [75])
+    retry: CommandRetryPolicy | None = None
+    parser: MetricParser
+    mode: Literal["must_not_increase", "must_not_decrease"] = "must_not_increase"
+    baseline_file: str = "constraintloop-baselines.json"
+
+    @field_validator("baseline_file")
+    @classmethod
+    def validate_baseline_file(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        if not value or path.is_absolute() or ".." in path.parts or "\\" in value:
+            raise ValueError("baseline_file must be a project-relative POSIX path")
+        return value
+
+    @model_validator(mode="after")
+    def validate_command(self) -> RatchetConstraint:
+        if isinstance(self.command, str) and not self.shell:
+            raise ValueError("string commands require shell: true; prefer argv lists")
+        if isinstance(self.command, list) and not self.command:
+            raise ValueError("command argv cannot be empty")
+        if set(self.success_codes) & set(self.pending_codes):
+            raise ValueError("success_codes and pending_codes must not overlap")
+        if self.retry and set(self.retry.exit_codes) & (
+            set(self.success_codes) | set(self.pending_codes)
+        ):
+            raise ValueError("retry exit_codes must not overlap success_codes or pending_codes")
+        if (
+            self.retry
+            and self.retry.retry_timeouts
+            and (
+                self.retry.total_timeout_seconds is None
+                or self.retry.total_timeout_seconds <= self.timeout_seconds
+            )
+        ):
+            raise ValueError(
+                "timeout retries require retry.total_timeout_seconds greater than timeout_seconds"
+            )
+        return self
+
+
 class ArtifactConstraint(BaseConstraint):
     kind: Literal["artifact"]
     path: str
     format: Literal["any", "json", "junit"] = "any"
     non_empty: bool = True
+    evidence: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> ArtifactConstraint:
+        if self.evidence and self.format != "json":
+            raise ValueError("structured artifact evidence requires format: json")
+        if any(not name or not path for name, path in self.evidence.items()):
+            raise ValueError("artifact evidence names and JSON paths must not be empty")
+        return self
 
 
 class RubricConstraint(BaseConstraint):
@@ -198,7 +258,11 @@ class RubricConstraint(BaseConstraint):
 
 
 ConstraintSpec = Annotated[
-    CommandConstraint | MetricConstraint | ArtifactConstraint | RubricConstraint,
+    CommandConstraint
+    | MetricConstraint
+    | RatchetConstraint
+    | ArtifactConstraint
+    | RubricConstraint,
     Field(discriminator="kind"),
 ]
 
@@ -352,6 +416,11 @@ class ConstraintResult(StrictModel):
     duration_ms: float = Field(default=0, ge=0)
     exit_code: int | None = None
     value: float | None = None
+    baseline: float | None = None
+    delta: float | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    evidence_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    failure_category: FailureCategory | None = None
     output_tail: str | None = None
     findings: list[Finding] = Field(default_factory=list)
     evaluator_calls: list[EvaluatorCallMetadata] = Field(default_factory=list)

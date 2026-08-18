@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import runpy
 import sys
@@ -10,6 +11,8 @@ import pytest
 
 import constraintloop
 from constraintloop.cli import main
+from constraintloop.models import Contract
+from scripts.generate_schema import schema_document
 
 
 def test_package_versions_and_canonical_urls_are_consistent() -> None:
@@ -98,3 +101,12 @@ def test_relative_markdown_links_resolve() -> None:
             assert (document.parent / relative_target).resolve().exists(), (
                 f"{document.relative_to(root)} links to missing {target}"
             )
+
+
+def test_published_contract_schema_is_current() -> None:
+    root = Path(__file__).parents[1]
+    published = (root / "schema/constraintloop.schema.json").read_text(encoding="utf-8")
+
+    assert published == json.dumps(schema_document(), indent=2, sort_keys=True) + "\n"
+    assert "ratchet" in published
+    assert Contract.model_json_schema()["title"] == "Contract"

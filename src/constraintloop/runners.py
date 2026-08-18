@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import operator
 import re
@@ -17,9 +18,12 @@ from constraintloop.models import (
     CommandRetryPolicy,
     ConstraintResult,
     Enforcement,
+    FailureCategory,
     MetricConstraint,
+    RatchetConstraint,
     Verdict,
 )
+from constraintloop.state import load_ratchet_baseline, load_ratchet_baseline_digest
 
 _OPS: dict[str, Callable[[float, float], bool]] = {
     "gt": operator.gt,
@@ -85,6 +89,7 @@ def run_command_constraint(
         duration_ms=duration,
         exit_code=returncode,
         output_tail=output or None,
+        failure_category=None if passed else FailureCategory.CONSTRAINT,
     )
 
 
@@ -138,10 +143,11 @@ def run_metric_constraint(
             duration_ms=duration,
             exit_code=returncode,
             output_tail=output or None,
+            failure_category=FailureCategory.CONSTRAINT,
         )
     try:
-        value = _parse_metric(project_root / spec.cwd, spec, stdout, stderr)
-    except (ValueError, OSError, json.JSONDecodeError, re.error) as exc:
+        value, evidence_sha256 = _parse_metric(project_root / spec.cwd, spec, stdout, stderr)
+    except (ValueError, OSError, json.JSONDecodeError, re.error, KeyError, IndexError) as exc:
         return _error_result(
             constraint_id,
             spec.kind,
@@ -169,7 +175,159 @@ def run_metric_constraint(
         duration_ms=duration,
         exit_code=returncode,
         value=value,
+        delta=value - spec.threshold.value,
+        details={
+            "value": value,
+            "operator": spec.threshold.operator,
+            "threshold": spec.threshold.value,
+            "delta": value - spec.threshold.value,
+            "evidence_sha256": evidence_sha256,
+        },
+        evidence_sha256=evidence_sha256,
         output_tail=output or None,
+        failure_category=None if passed else FailureCategory.CONSTRAINT,
+    )
+
+
+def measure_ratchet_constraint(
+    project_root: Path,
+    constraint_id: str,
+    spec: RatchetConstraint,
+    input_digest: str,
+    output_limit: int,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> ConstraintResult:
+    """Measure a ratchet without comparing or updating its committed baseline."""
+    started = time.monotonic()
+    execution, _ = _run_with_retries(
+        project_root,
+        constraint_id,
+        spec.command,
+        spec.shell,
+        spec.cwd,
+        spec.timeout_seconds,
+        spec.retry,
+        progress,
+    )
+    duration = (time.monotonic() - started) * 1000
+    if isinstance(execution, str):
+        return _error_result(
+            constraint_id, spec.kind, spec.enforcement, input_digest, execution, duration
+        )
+    returncode, stdout, stderr = execution
+    output = _output_tail(stdout, stderr, output_limit)
+    if returncode in spec.pending_codes:
+        return ConstraintResult(
+            constraint_id=constraint_id,
+            kind=spec.kind,
+            verdict=Verdict.PENDING,
+            enforcement=spec.enforcement,
+            input_digest=input_digest,
+            message=f"Ratchet metric is pending (exit code {returncode})",
+            duration_ms=duration,
+            exit_code=returncode,
+            output_tail=output or None,
+        )
+    if returncode not in spec.success_codes:
+        return ConstraintResult(
+            constraint_id=constraint_id,
+            kind=spec.kind,
+            verdict=Verdict.FAIL,
+            enforcement=spec.enforcement,
+            input_digest=input_digest,
+            message=f"Ratchet command exited with code {returncode}",
+            duration_ms=duration,
+            exit_code=returncode,
+            output_tail=output or None,
+            failure_category=FailureCategory.CONSTRAINT,
+        )
+    try:
+        value, evidence_sha256 = _parse_metric(project_root / spec.cwd, spec, stdout, stderr)
+    except (ValueError, OSError, json.JSONDecodeError, re.error, KeyError, IndexError) as exc:
+        return _error_result(
+            constraint_id,
+            spec.kind,
+            spec.enforcement,
+            input_digest,
+            f"Could not parse ratchet metric: {exc}",
+            duration,
+            output,
+        )
+    return ConstraintResult(
+        constraint_id=constraint_id,
+        kind=spec.kind,
+        verdict=Verdict.PASS,
+        enforcement=spec.enforcement,
+        input_digest=input_digest,
+        message=f"Measured ratchet metric {value:g}",
+        duration_ms=duration,
+        exit_code=returncode,
+        value=value,
+        details={"value": value, "evidence_sha256": evidence_sha256},
+        evidence_sha256=evidence_sha256,
+        output_tail=output or None,
+    )
+
+
+def run_ratchet_constraint(
+    project_root: Path,
+    constraint_id: str,
+    spec: RatchetConstraint,
+    input_digest: str,
+    output_limit: int,
+    *,
+    progress: Callable[[str], None] | None = None,
+) -> ConstraintResult:
+    measured = measure_ratchet_constraint(
+        project_root,
+        constraint_id,
+        spec,
+        input_digest,
+        output_limit,
+        progress=progress,
+    )
+    if measured.verdict != Verdict.PASS or measured.value is None:
+        return measured
+    baseline = load_ratchet_baseline(project_root, spec.baseline_file, constraint_id)
+    baseline_digest = load_ratchet_baseline_digest(project_root, spec.baseline_file, constraint_id)
+    if baseline is None:
+        return measured.model_copy(
+            update={
+                "verdict": Verdict.ERROR,
+                "message": (
+                    f"Ratchet baseline is missing in {spec.baseline_file}; run "
+                    f"'constraintloop baseline update {constraint_id}'"
+                ),
+                "failure_category": FailureCategory.ENVIRONMENT,
+            }
+        )
+    value = measured.value
+    delta = value - baseline
+    passed = delta <= 0 if spec.mode == "must_not_increase" else delta >= 0
+    comparison = "<=" if spec.mode == "must_not_increase" else ">="
+    return measured.model_copy(
+        update={
+            "verdict": Verdict.PASS if passed else Verdict.FAIL,
+            "message": (
+                f"Ratchet {value:g} {comparison} baseline {baseline:g} (change {delta:+g})"
+            ),
+            "baseline": baseline,
+            "delta": delta,
+            "details": {
+                "value": value,
+                "baseline": baseline,
+                "change": delta,
+                "mode": spec.mode,
+                "evidence_sha256": measured.evidence_sha256,
+                **(
+                    {"baseline_evidence_sha256": baseline_digest}
+                    if baseline_digest is not None
+                    else {}
+                ),
+            },
+            "failure_category": None if passed else FailureCategory.CONSTRAINT,
+        }
     )
 
 
@@ -192,6 +350,7 @@ def run_artifact_constraint(
             "Artifact path escapes the project root",
             0,
         )
+    details: dict[str, Any] = {}
     if not path.is_file():
         verdict, message = Verdict.FAIL, f"Required artifact does not exist: {spec.path}"
     elif spec.non_empty and path.stat().st_size == 0:
@@ -199,13 +358,16 @@ def run_artifact_constraint(
     else:
         try:
             if spec.format == "json":
-                json.loads(path.read_text(encoding="utf-8"))
+                report = json.loads(path.read_text(encoding="utf-8"))
+                details = {
+                    name: _json_path(report, json_path) for name, json_path in spec.evidence.items()
+                }
             elif spec.format == "junit":
                 import xml.etree.ElementTree as ET
 
                 ET.parse(path)
             verdict, message = Verdict.PASS, f"Artifact is present: {spec.path}"
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
+        except (OSError, json.JSONDecodeError, ValueError, KeyError, IndexError) as exc:
             verdict, message = Verdict.FAIL, f"Artifact is invalid: {exc}"
     return ConstraintResult(
         constraint_id=constraint_id,
@@ -215,6 +377,8 @@ def run_artifact_constraint(
         input_digest=input_digest,
         message=message,
         duration_ms=(time.monotonic() - started) * 1000,
+        details=details,
+        failure_category=None if verdict == Verdict.PASS else FailureCategory.CONSTRAINT,
     )
 
 
@@ -297,10 +461,10 @@ def _is_retryable(execution: tuple[int, str, str] | str, policy: CommandRetryPol
 
 def _parse_metric(
     cwd: Path,
-    spec: MetricConstraint,
+    spec: MetricConstraint | RatchetConstraint,
     stdout: str,
     stderr: str,
-) -> float:
+) -> tuple[float, str]:
     parser = spec.parser
     if parser.source == "stdout":
         raw = stdout
@@ -320,18 +484,22 @@ def _parse_metric(
         match = re.search(parser.pattern, raw, re.MULTILINE)
         if not match:
             raise ValueError("regex did not match")
-        return float(match.group(parser.group))
+        return float(match.group(parser.group)), hashlib.sha256(raw.encode()).hexdigest()
 
     assert parser.path is not None
-    value: object = json.loads(raw)
-    for part in parser.path.split("."):
+    value = _json_path(json.loads(raw), parser.path)
+    return float(cast(Any, value)), hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _json_path(value: object, path: str) -> object:
+    for part in path.split("."):
         if isinstance(value, list):
             value = value[int(part)]
         elif isinstance(value, dict):
             value = value[part]
         else:
             raise ValueError(f"path stopped before {part!r}")
-    return float(cast(Any, value))
+    return value
 
 
 def _output_tail(stdout: str, stderr: str, limit: int) -> str:
@@ -360,4 +528,5 @@ def _error_result(
         message=message,
         duration_ms=duration,
         output_tail=output or None,
+        failure_category=FailureCategory.ENVIRONMENT,
     )

@@ -5,6 +5,21 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-18
+
+- Add native monotonic ratchet constraints with committed JSON baselines,
+  strengthening-only baseline updates by default, and explicit intentional
+  regression overrides.
+- Preserve selected fields from JSON report artifacts as structured evidence
+  and show metric values, baselines, and changes in run and status output.
+- Add `constraintloop explain` for phase eligibility, matched and changed watch
+  paths, cache state, and complete dependency chains.
+- Diagnose missing worktree environment files, virtual environments, container
+  runtimes, Docker daemons, and ratchet baselines in `doctor --deep`.
+- Publish a generated JSON Schema for YAML editor validation and autocomplete.
+- Classify genuine constraint failures separately from environmental and
+  startup failures in human-readable summaries and JSON evidence.
+
 ## [0.2.0] - 2026-08-07
 
 - Preserve selected monorepo project paths in generated hooks, support explicit

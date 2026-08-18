@@ -74,3 +74,28 @@ def test_hygiene_git_failures_are_safe(tmp_path: Path, monkeypatch) -> None:
 
     assert not is_path_ignored(tmp_path, ".constraintloop/state/")
     assert tracked_state_files(tmp_path) == []
+
+
+def test_deep_diagnostics_identifies_worktree_prerequisites(tmp_path: Path) -> None:
+    (tmp_path / ".env.example").write_text("TOKEN=\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(
+        ".constraintloop/state/\nconstraintloop.local.yml\nconstraintloop.local.yaml\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "source").write_text("data", encoding="utf-8")
+    contract = Contract.model_validate(
+        {
+            "constraints": {
+                "tests": {
+                    "kind": "command",
+                    "command": [".venv/bin/pytest"],
+                    "watch": ["source"],
+                }
+            }
+        }
+    )
+
+    issues = deep_diagnostics(tmp_path, contract, {})
+
+    assert any(".env is missing" in issue for issue in issues)
+    assert any("virtual environment prerequisite is missing" in issue for issue in issues)

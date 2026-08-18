@@ -329,3 +329,100 @@ def test_debug_reports_stale_evidence_and_missing_command(tmp_path: Path, monkey
     assert "Evaluator could not start" in debug.output
     assert "executable: NOT FOUND" in debug.output
     assert "did not execute the evaluator" in debug.output
+
+
+def test_ratchet_baseline_update_run_status_and_regression_guard(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("CONSTRAINTLOOP_CACHE_DIR", str(tmp_path / "cache"))
+    count = tmp_path / "count"
+    count.write_text("5", encoding="utf-8")
+    payload = {
+        "constraints": {
+            "database_consumers": {
+                "kind": "ratchet",
+                "command": [
+                    sys.executable,
+                    "-c",
+                    "import json; from pathlib import Path; "
+                    "print(json.dumps({'count': int(Path('count').read_text())}))",
+                ],
+                "parser": {"type": "json", "path": "count"},
+                "watch": ["count"],
+                "phases": ["stop"],
+            }
+        }
+    }
+    (tmp_path / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+    runner = CliRunner()
+
+    initialized = runner.invoke(
+        main, ["baseline", "update", "database_consumers", "--project", str(tmp_path)]
+    )
+    assert initialized.exit_code == 0, initialized.output
+    baseline = json.loads((tmp_path / "constraintloop-baselines.json").read_text())
+    assert baseline["ratchets"]["database_consumers"]["value"] == 5
+    assert len(baseline["ratchets"]["database_consumers"]["evidence_sha256"]) == 64
+
+    passing = runner.invoke(main, ["run", "--project", str(tmp_path)])
+    assert passing.exit_code == 0
+    assert "change=0" in passing.output
+    assert "baseline_evidence_sha256=" in passing.output
+    status = runner.invoke(main, ["status", "--project", str(tmp_path)])
+    assert "value=5" in status.output
+    assert "baseline=5" in status.output
+
+    count.write_text("6", encoding="utf-8")
+    failing = runner.invoke(main, ["run", "--project", str(tmp_path)])
+    assert failing.exit_code == 1
+    assert "Failure classes: constraint=1" in failing.output
+    assert "[constraint]" in failing.output
+
+    refused = runner.invoke(
+        main, ["baseline", "update", "database_consumers", "--project", str(tmp_path)]
+    )
+    assert refused.exit_code != 0
+    assert "Refusing to weaken" in refused.output
+    allowed = runner.invoke(
+        main,
+        [
+            "baseline",
+            "update",
+            "database_consumers",
+            "--allow-regression",
+            "--project",
+            str(tmp_path),
+        ],
+    )
+    assert allowed.exit_code == 0
+
+
+def test_explain_reports_phase_skips_watch_paths_and_dependency_chains(tmp_path: Path) -> None:
+    payload = {
+        "constraints": {
+            "inventory": {
+                "kind": "command",
+                "command": ["true"],
+                "watch": ["src/**/*.py"],
+                "phases": ["stop"],
+            },
+            "migration": {
+                "kind": "command",
+                "command": ["true"],
+                "watch": ["src/**/*.py"],
+                "needs": ["inventory"],
+                "phases": ["ci"],
+            },
+        }
+    }
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/consumer.py").write_text("CONSUMER = True\n", encoding="utf-8")
+    (tmp_path / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["explain", "--phase", "stop", "--project", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert "RUN inventory" in result.output
+    assert "SKIP migration" in result.output
+    assert "src/consumer.py" in result.output
+    assert "inventory -> migration" in result.output

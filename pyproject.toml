@@ -1,6 +1,6 @@
 [project]
 name = "constraintloop"
-version = "0.2.0"
+version = "0.3.0"
 description = "Evidence-based completion gates for AI coding agents"
 readme = "README.md"
 license = "MIT"
@@ -66,6 +66,7 @@ include = [
     "/tests",
     "/docs",
     "/scripts",
+    "/schema",
     "/pyproject.toml",
     "/README.md",
     "/LICENSE",

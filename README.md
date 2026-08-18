@@ -141,6 +141,14 @@ constraints:
     needs: [tests]
     phases: [stop, ci]
 
+  database_consumers:
+    kind: ratchet
+    description: Do not add legacy database consumers during migration
+    command: [python, scripts/inventory_consumers.py, --json]
+    parser: {type: json, path: counts.database_consumers}
+    mode: must_not_increase
+    phases: [stop, ci]
+
   design_review:
     kind: rubric
     enforcement: advisory
@@ -160,6 +168,15 @@ evaluators:
 
 See [examples/constraintloop.full.yml](examples/constraintloop.full.yml) for all
 constraint types.
+
+Ratchets store their numeric baseline and evidence SHA-256 in the committed
+`constraintloop-baselines.json`; baseline changes are therefore explicit code
+review events. JSON artifact constraints can map selected dotted paths through
+`evidence` so human-readable runs and `constraintloop status` report useful
+counts and changes while the complete machine-readable run remains available
+through `--json`. The published
+[JSON Schema](schema/constraintloop.schema.json) provides editor validation and
+autocomplete for every contract field.
 
 The pre-release engineering and open-source checklist is tracked in
 [docs/release-readiness.md](docs/release-readiness.md).
@@ -265,6 +282,11 @@ selected project's `.gitignore`, and warn if state is already tracked.
 - `constraintloop loop-prompt NAME --adapter claude|codex` — print the bounded
   native-agent repair protocol without launching an agent.
 - `constraintloop status` — inspect evidence without executing commands.
+- `constraintloop explain --phase change|stop|ci` — show why each constraint
+  runs or is skipped, including matched and changed watch paths, cache state,
+  and dependency chains.
+- `constraintloop baseline update ID|--all` — initialize or strengthen native
+  ratchet baselines; weakening requires the explicit `--allow-regression` flag.
 - `constraintloop debug ID` — explain evidence freshness, evaluator
   configuration, executable resolution, and native CLI availability without
   running an evaluator or consuming model quota.
@@ -272,7 +294,9 @@ selected project's `.gitignore`, and warn if state is already tracked.
   snapshot-bound advisory disposition without changing its verdict.
 - `constraintloop doctor` — validate and fingerprint the contract;
   `--deep` also checks executables, Python invocations, referenced environment
-  files and variables, empty watch globs, and local-state hygiene.
+  files and variables, worktree environment templates, virtual environments,
+  container runtimes and daemons, ratchet baselines, empty watch globs, and
+  local-state hygiene.
 - `constraintloop waive ID --reason "..."` — human-local, snapshot-bound waiver
   for fresh non-passing deterministic evidence. Rubrics cannot be waived.
 - `constraintloop enhance` — write a review-only proposal for stronger tooling.
@@ -314,7 +338,7 @@ responses become `uncertain`; a required rubric therefore fails closed.
 
 ## Compatibility boundary
 
-The supported v0.2 surfaces are the CLI and exit codes, configuration schema,
+The supported v0.3 surfaces are the CLI and exit codes, configuration schema,
 evaluator command protocol, native hook responses, and schema-versioned
 evidence and cycle JSON. Python submodules are internal during initial
 development and are not covered by semantic-versioning compatibility promises.

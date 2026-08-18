@@ -8,6 +8,7 @@ import os
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
+from datetime import UTC, datetime
 from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 from typing import Any
@@ -117,6 +118,64 @@ def save_cached_result(
         _write_json(path, raw)
 
 
+def load_ratchet_baseline(
+    project_root: Path, baseline_file: str, constraint_id: str
+) -> float | None:
+    path = (project_root / baseline_file).resolve()
+    try:
+        path.relative_to(project_root.resolve())
+    except ValueError:
+        return None
+    raw = _read_json(path, {})
+    entries = raw.get("ratchets") if isinstance(raw, dict) else None
+    item = entries.get(constraint_id) if isinstance(entries, dict) else None
+    value = item.get("value") if isinstance(item, dict) else item
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    return None
+
+
+def load_ratchet_baseline_digest(
+    project_root: Path, baseline_file: str, constraint_id: str
+) -> str | None:
+    path = (project_root / baseline_file).resolve()
+    try:
+        path.relative_to(project_root.resolve())
+    except ValueError:
+        return None
+    raw = _read_json(path, {})
+    entries = raw.get("ratchets") if isinstance(raw, dict) else None
+    item = entries.get(constraint_id) if isinstance(entries, dict) else None
+    digest = item.get("evidence_sha256") if isinstance(item, dict) else None
+    return digest if isinstance(digest, str) else None
+
+
+def save_ratchet_baseline(
+    project_root: Path,
+    baseline_file: str,
+    constraint_id: str,
+    value: float,
+    evidence_sha256: str | None = None,
+) -> Path:
+    path = (project_root / baseline_file).resolve()
+    path.relative_to(project_root.resolve())
+    with _write_lock(path):
+        raw = _read_json(path, {})
+        if not isinstance(raw, dict):
+            raw = {}
+        entries = raw.get("ratchets")
+        if not isinstance(entries, dict):
+            entries = {}
+        entries[constraint_id] = {
+            "value": value,
+            "updated_at": datetime.now(UTC).isoformat(),
+            **({"evidence_sha256": evidence_sha256} if evidence_sha256 else {}),
+        }
+        raw.update({"schema_version": 1, "ratchets": entries})
+        _write_json(path, raw)
+    return path
+
+
 def advisory_acknowledgments_path(project_root: Path) -> Path:
     return _project_dir(project_root) / "advisory-acknowledgments.json"
 
@@ -129,6 +188,11 @@ def result_evidence_digest(result: ConstraintResult) -> str:
         "message": result.message,
         "exit_code": result.exit_code,
         "value": result.value,
+        "baseline": result.baseline,
+        "delta": result.delta,
+        "details": result.details,
+        "evidence_sha256": result.evidence_sha256,
+        "failure_category": result.failure_category,
         "output_tail": result.output_tail,
         "findings": [
             finding.model_dump(mode="json", exclude_none=True) for finding in result.findings
