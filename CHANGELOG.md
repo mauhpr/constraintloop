@@ -5,6 +5,11 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-31
+
+- Prevent recursive Claude Stop-hook invocations from repeatedly blocking completion.
+- Add actionable version-skew guidance when a hook runtime rejects unknown contract keys.
+
 ## [0.3.0] - 2026-08-18
 
 - Add native monotonic ratchet constraints with committed JSON baselines,
