@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from constraintloop import __version__
 from constraintloop.hooks import handle_hook
 from constraintloop.setup_hooks import install_hooks, uninstall_hooks
 from constraintloop.state import create_advisory_acknowledgment, load_latest_result, load_session
@@ -39,6 +40,20 @@ def test_stop_blocks_then_requires_human(tmp_path: Path, monkeypatch) -> None:
     assert first["decision"] == "block"
     assert second["continue"] is False
     assert "ask a human" in second["stopReason"]
+
+
+@pytest.mark.parametrize("active_field", ["stop_hook_active", "stopHookActive"])
+def test_recursive_stop_hook_succeeds_without_loading_contract(
+    tmp_path: Path, active_field: str
+) -> None:
+    response = handle_hook(
+        tmp_path,
+        "claude",
+        "stop",
+        {active_field: True},
+    )
+
+    assert response == {}
 
 
 def test_pre_tool_protects_contract(tmp_path: Path) -> None:
@@ -125,7 +140,7 @@ def test_setup_pins_uvx_and_supports_explicit_hook_executable(tmp_path: Path, mo
     command = json.loads(path.read_text(encoding="utf-8"))["hooks"]["Stop"][0]["hooks"][0][
         "command"
     ]
-    assert command.startswith("uvx --from constraintloop==0.3.0 constraintloop hook")
+    assert command.startswith(f"uvx --from constraintloop=={__version__} constraintloop hook")
 
     path = install_hooks(tmp_path, "codex", hook_executable="pipx run constraintloop")
     command = json.loads(path.read_text(encoding="utf-8"))["hooks"]["Stop"][0]["hooks"][0][

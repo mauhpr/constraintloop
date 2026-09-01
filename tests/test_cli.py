@@ -6,6 +6,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+from constraintloop import __version__
 from constraintloop.cli import main
 from constraintloop.config import ContractError, load_contract
 
@@ -125,6 +126,22 @@ def test_contract_rejects_ambiguous_and_non_mapping_overlays(tmp_path: Path) -> 
     (tmp_path / "constraintloop.local.yaml").write_text("{}\n", encoding="utf-8")
     with pytest.raises(ContractError, match="Multiple local contract overlays"):
         load_contract(tmp_path)
+
+
+def test_unknown_contract_keys_report_runtime_version_and_upgrade_action(tmp_path: Path) -> None:
+    payload = {
+        "settings": {"future_setting": True},
+        "constraints": {"check": {"kind": "command", "command": ["true"]}},
+    }
+    (tmp_path / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    with pytest.raises(ContractError) as raised:
+        load_contract(tmp_path)
+
+    message = str(raised.value)
+    assert "future_setting" in message
+    assert f"ConstraintLoop {__version__} does not recognize one or more keys" in message
+    assert "constraintloop setup --adapter all --project ." in message
 
 
 @pytest.mark.parametrize(

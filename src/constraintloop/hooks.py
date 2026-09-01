@@ -21,6 +21,15 @@ def handle_hook(
     event: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    # Claude re-runs Stop hooks after a hook has already blocked completion and
+    # marks that recursive invocation explicitly. Blocking again traps the
+    # agent in a hook loop, so the recursive call must succeed without running
+    # the contract a second time.
+    if event == "stop" and (
+        payload.get("stop_hook_active") is True or payload.get("stopHookActive") is True
+    ):
+        return {}
+
     session_id = str(
         payload.get("session_id")
         or payload.get("sessionId")

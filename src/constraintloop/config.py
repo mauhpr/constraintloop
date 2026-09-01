@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
+from constraintloop import __version__
 from constraintloop.models import Contract
 
 CONFIG_NAMES = ("constraintloop.yml", "constraintloop.yaml")
@@ -69,7 +70,16 @@ def load_contract(project_root: Path, *, include_local: bool = True) -> tuple[Co
     except ContractError:
         raise
     except (OSError, yaml.YAMLError, ValidationError) as exc:
-        raise ContractError(f"Invalid contract {path}: {exc}") from exc
+        hint = ""
+        if isinstance(exc, ValidationError) and any(
+            error["type"] == "extra_forbidden" for error in exc.errors()
+        ):
+            hint = (
+                f"\nConstraintLoop {__version__} does not recognize one or more keys. "
+                "Check for typos; if the contract uses features from a newer release, upgrade "
+                "the hook executable and rerun `constraintloop setup --adapter all --project .`."
+            )
+        raise ContractError(f"Invalid contract {path}: {exc}{hint}") from exc
 
 
 def _merge_mappings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:

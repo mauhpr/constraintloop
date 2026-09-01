@@ -149,6 +149,22 @@ Generated commands include the resolved project argument. If the error remains,
 inspect the relevant `.claude`, `.codex`, or `.gemini` settings file for a stale
 manually copied command.
 
+### Why does a hook reject documented contract keys as extra inputs?
+
+The hook is running an older ConstraintLoop executable than the contract expects.
+Upgrade that installation, then regenerate the hook commands so they resolve to the
+same release:
+
+```bash
+constraintloop --version
+constraintloop setup --adapter all --project .
+```
+
+Current releases include their version and this recovery action when strict schema
+validation encounters unknown keys. Recursive Claude Stop-hook calls are allowed to
+finish after delivering the error once, so an invalid or version-skewed contract does
+not create a repeated Stop-hook loop.
+
 ## Loops
 
 ### Can I configure an unlimited repair loop?

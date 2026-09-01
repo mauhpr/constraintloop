@@ -6,6 +6,40 @@ from pydantic import ValidationError
 from constraintloop.models import Contract
 
 
+def test_contract_accepts_progress_interval_and_command_retry_policies() -> None:
+    contract = Contract.model_validate(
+        {
+            "settings": {"progress_interval_seconds": 10},
+            "constraints": {
+                "alembic_heads": {
+                    "kind": "command",
+                    "command": ["check-alembic-heads"],
+                    "timeout_seconds": 300,
+                    "retry": {
+                        "max_attempts": 2,
+                        "exit_codes": [1],
+                        "total_timeout_seconds": 600,
+                    },
+                },
+                "async_postgres_tests": {
+                    "kind": "command",
+                    "command": ["pytest", "-m", "async_postgres"],
+                    "timeout_seconds": 900,
+                    "retry": {
+                        "max_attempts": 2,
+                        "retry_timeouts": True,
+                        "total_timeout_seconds": 1800,
+                    },
+                },
+            },
+        }
+    )
+
+    assert contract.settings.progress_interval_seconds == 10
+    assert contract.constraints["alembic_heads"].retry is not None
+    assert contract.constraints["async_postgres_tests"].retry is not None
+
+
 def test_required_rubric_demands_majority_quorum() -> None:
     with pytest.raises(ValidationError, match="at least two runs"):
         Contract.model_validate(
