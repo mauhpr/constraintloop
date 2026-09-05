@@ -8,7 +8,7 @@ from click.testing import CliRunner
 
 from constraintloop import __version__
 from constraintloop.cli import main
-from constraintloop.config import ContractError, load_contract
+from constraintloop.config import ContractError, discover_project_root, load_contract
 
 
 def test_init_detects_python_tests(tmp_path: Path) -> None:
@@ -75,6 +75,37 @@ def test_enhance_and_author_only_write_proposals(tmp_path: Path) -> None:
     assert (tmp_path / ".constraintloop/proposals/author.yml").is_file()
 
 
+def test_init_detects_javascript_scripts_and_tolerates_invalid_package_json(tmp_path: Path) -> None:
+    package = tmp_path / "package.json"
+    package.write_text(
+        '{"scripts":{"lint":"eslint .","typecheck":"tsc","test":"vitest"}}',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, ["init", "--project", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    contract, _ = load_contract(tmp_path)
+    assert {"npm_lint", "npm_typecheck", "npm_test"} <= set(contract.constraints)
+
+    (tmp_path / "constraintloop.yml").unlink()
+    package.write_text("{", encoding="utf-8")
+    invalid = CliRunner().invoke(main, ["init", "--project", str(tmp_path)])
+    assert invalid.exit_code == 0, invalid.output
+
+
+def test_enhancement_proposal_detects_javascript_project(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["enhance", "--project", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    proposal = yaml.safe_load(
+        (tmp_path / ".constraintloop/proposals/enhance.yml").read_text(encoding="utf-8")
+    )
+    assert proposal["suggestions"][0]["dependency"] == "@stryker-mutator/core"
+
+
 def test_local_contract_overlay_recursively_merges_without_changing_base(tmp_path: Path) -> None:
     base = {
         "version": 1,
@@ -129,6 +160,16 @@ def test_contract_rejects_ambiguous_and_non_mapping_overlays(tmp_path: Path) -> 
     (tmp_path / "constraintloop.local.yml").write_text("{}\n", encoding="utf-8")
     (tmp_path / "constraintloop.local.yaml").write_text("{}\n", encoding="utf-8")
     with pytest.raises(ContractError, match="Multiple local contract overlays"):
+        load_contract(tmp_path)
+
+
+def test_contract_discovery_and_base_document_type_errors(tmp_path: Path) -> None:
+    nested = tmp_path / "missing" / "nested"
+    nested.mkdir(parents=True)
+    assert discover_project_root(nested) == nested.resolve()
+
+    (tmp_path / "constraintloop.yml").write_text("- invalid\n", encoding="utf-8")
+    with pytest.raises(ContractError, match="top-level value must be a mapping"):
         load_contract(tmp_path)
 
 

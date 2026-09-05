@@ -5,6 +5,14 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-04
+
+- Raise enforced statement coverage from 90% to 95% and branch coverage from
+  80% to 90%.
+- Add behavioral coverage for lifecycle CLI boundaries, hook configuration
+  failures, native evaluator entrypoints, timeout escalation, project
+  scaffolding, environment parsing, and contract validation.
+
 ## [0.4.0] - 2026-09-04
 
 - Enforce finite command timeouts across complete POSIX process groups so

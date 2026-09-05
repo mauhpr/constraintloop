@@ -9,6 +9,7 @@ from click.testing import CliRunner
 
 import constraintloop.cli as cli_module
 from constraintloop.cli import main
+from constraintloop.models import CycleResult, LoopState
 
 
 def _write_contract(root: Path, *, passing: bool = True) -> None:
@@ -27,6 +28,28 @@ def _write_contract(root: Path, *, passing: bool = True) -> None:
     contract_name = "constraintloop" + ".yml"
     (root / contract_name).write_text(yaml.safe_dump(payload), encoding="utf-8")
     (root / "source").write_text("data", encoding="utf-8")
+
+
+def _write_loop_contract(root: Path) -> None:
+    payload = {
+        "constraints": {
+            "check": {
+                "kind": "command",
+                "command": [sys.executable, "-c", "pass"],
+                "phases": ["stop"],
+            }
+        },
+        "loops": {
+            "completion": {
+                "phase": "stop",
+                "interval_seconds": 1,
+                "max_repair_attempts": 2,
+                "max_unchanged_repairs": 1,
+                "max_duration_seconds": 60,
+            }
+        },
+    }
+    (root / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
 
 
 def test_run_ci_status_doctor_and_waive_commands(tmp_path: Path, monkeypatch) -> None:
@@ -306,6 +329,233 @@ def test_setup_and_uninstall_report_hook_filesystem_errors(tmp_path: Path, monke
     assert uninstall.exit_code != 0
     assert uninstall.output == "Error: Could not remove codex hooks: read-only settings\n"
     assert "Traceback" not in uninstall.output
+
+
+def test_setup_and_uninstall_manage_optional_pre_push_hook(tmp_path: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    calls: list[tuple[str, str | None]] = []
+
+    def install(root: Path, adapter: str, hook_executable: str | None = None) -> Path:
+        calls.append((adapter, hook_executable))
+        return root / ".codex/hooks.json"
+
+    monkeypatch.setattr(cli_module, "install_hooks", install)
+    monkeypatch.setattr(
+        cli_module,
+        "install_pre_push_hook",
+        lambda root, hook_executable=None: root / ".git/hooks/pre-push",
+    )
+    setup = runner.invoke(
+        main,
+        [
+            "setup",
+            "--adapter",
+            "codex",
+            "--hook-executable",
+            "constraintloop-local",
+            "--pre-push",
+            "--project",
+            str(tmp_path),
+        ],
+    )
+    assert setup.exit_code == 0, setup.output
+    assert calls == [("codex", "constraintloop-local")]
+    assert ".git/hooks/pre-push" in setup.output
+
+    monkeypatch.setattr(cli_module, "uninstall_hooks", lambda root, adapter: (root, 0))
+    monkeypatch.setattr(
+        cli_module, "uninstall_pre_push_hook", lambda root: (root / ".git/hooks/pre-push", False)
+    )
+    uninstall = runner.invoke(
+        main, ["uninstall", "--adapter", "codex", "--pre-push", "--project", str(tmp_path)]
+    )
+    assert uninstall.exit_code == 0, uninstall.output
+    assert "No ConstraintLoop pre-push hook" in uninstall.output
+
+
+def test_pre_push_hook_errors_are_reported_without_tracebacks(tmp_path: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    monkeypatch.setattr(cli_module, "install_hooks", lambda root, adapter: root)
+    monkeypatch.setattr(
+        cli_module,
+        "install_pre_push_hook",
+        lambda root, hook_executable=None: (_ for _ in ()).throw(OSError("read-only hooks")),
+    )
+    setup = runner.invoke(
+        main, ["setup", "--adapter", "codex", "--pre-push", "--project", str(tmp_path)]
+    )
+    assert setup.exit_code != 0
+    assert "Could not install pre-push hook: read-only hooks" in setup.output
+
+    monkeypatch.setattr(cli_module, "uninstall_hooks", lambda root, adapter: (root, 0))
+    monkeypatch.setattr(
+        cli_module,
+        "uninstall_pre_push_hook",
+        lambda root: (_ for _ in ()).throw(ValueError("foreign hook")),
+    )
+    uninstall = runner.invoke(
+        main, ["uninstall", "--adapter", "codex", "--pre-push", "--project", str(tmp_path)]
+    )
+    assert uninstall.exit_code != 0
+    assert "Could not remove pre-push hook: foreign hook" in uninstall.output
+
+
+def test_supervise_and_loop_prompt_cover_success_and_errors(tmp_path: Path, monkeypatch) -> None:
+    _write_loop_contract(tmp_path)
+    transition = CycleResult(
+        loop="completion",
+        state=LoopState.REPAIR,
+        snapshot="sha256:abc",
+        observation=1,
+        repair_attempt=1,
+        next_action="repair check",
+        wake_after_seconds=0,
+        blocking_constraints=["check"],
+    )
+    monkeypatch.setattr(cli_module, "supervise", lambda *args: iter([transition]))
+    runner = CliRunner()
+
+    supervised = runner.invoke(main, ["supervise", "completion", "--project", str(tmp_path)])
+    assert supervised.exit_code == 10
+    assert json.loads(supervised.output)["state"] == "repair"
+
+    prompt = runner.invoke(
+        main, ["loop-prompt", "completion", "--adapter", "codex", "--project", str(tmp_path)]
+    )
+    assert prompt.exit_code == 0, prompt.output
+    assert "completion" in prompt.output
+
+    unknown = runner.invoke(
+        main, ["loop-prompt", "missing", "--adapter", "codex", "--project", str(tmp_path)]
+    )
+    assert unknown.exit_code != 0
+    assert "Unknown loop" in unknown.output
+
+    missing = runner.invoke(
+        main, ["supervise", "completion", "--project", str(tmp_path / "missing")]
+    )
+    assert missing.exit_code == 14
+    assert json.loads(missing.output)["state"] == "error"
+
+
+def test_doctor_and_debug_report_configuration_boundaries(tmp_path: Path, monkeypatch) -> None:
+    runner = CliRunner()
+    missing = runner.invoke(main, ["doctor", "--project", str(tmp_path / "missing")])
+    assert missing.exit_code != 0
+    assert "No ConstraintLoop contract" in missing.output
+
+    deterministic = tmp_path / "deterministic"
+    deterministic.mkdir()
+    _write_contract(deterministic)
+    unknown = runner.invoke(main, ["debug", "missing", "--project", str(deterministic)])
+    assert unknown.exit_code != 0
+    assert "Unknown constraint" in unknown.output
+    debug = runner.invoke(main, ["debug", "check", "--project", str(deterministic)])
+    assert debug.exit_code == 0, debug.output
+    assert "evidence: MISSING" in debug.output
+    assert "evaluator: none" in debug.output
+
+    secret = deterministic / ".constraintloop/secrets.env"
+    secret.parent.mkdir(exist_ok=True)
+    secret.write_text("invalid entry\n", encoding="utf-8")
+    secret.chmod(0o600)
+    invalid_environment = runner.invoke(main, ["doctor", "--project", str(deterministic)])
+    assert invalid_environment.exit_code != 0
+    assert "Invalid environment entry" in invalid_environment.output
+
+    api_project = tmp_path / "api"
+    api_project.mkdir()
+    payload = {
+        "constraints": {
+            "review": {
+                "kind": "rubric",
+                "enforcement": "advisory",
+                "evaluator": "reviewer",
+                "rubric": "Review",
+            }
+        },
+        "evaluators": {"reviewer": {"type": "openai", "model": "gpt-test"}},
+    }
+    (api_project / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    doctor = runner.invoke(main, ["doctor", "--project", str(api_project)])
+    assert doctor.exit_code == 0, doctor.output
+    assert "OPENAI_API_KEY missing" in doctor.output
+    api_debug = runner.invoke(main, ["debug", "review", "--project", str(api_project)])
+    assert api_debug.exit_code == 0, api_debug.output
+    assert "credential environment: OPENAI_API_KEY MISSING" in api_debug.output
+
+    executable = deterministic / "bin/check"
+    executable.parent.mkdir()
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    assert cli_module._resolve_executable(deterministic, "bin/check") == executable.resolve()
+    assert cli_module._resolve_executable(deterministic, "bin/missing") is None
+
+
+def test_acknowledge_rejects_invalid_or_non_actionable_evidence(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("CONSTRAINTLOOP_CACHE_DIR", str(tmp_path / "cache"))
+    runner = CliRunner()
+    missing = runner.invoke(
+        main,
+        ["acknowledge", "review", "--reason", "reason", "--project", str(tmp_path / "missing")],
+    )
+    assert missing.exit_code != 0
+    assert "No ConstraintLoop contract" in missing.output
+
+    _write_contract(tmp_path)
+    unknown = runner.invoke(
+        main, ["acknowledge", "missing", "--reason", "reason", "--project", str(tmp_path)]
+    )
+    assert "Unknown constraint" in unknown.output
+    required = runner.invoke(
+        main, ["acknowledge", "check", "--reason", "reason", "--project", str(tmp_path)]
+    )
+    assert "Only advisory constraints" in required.output
+
+    payload = {
+        "constraints": {
+            "review": {
+                "kind": "rubric",
+                "enforcement": "advisory",
+                "evaluator": "reviewer",
+                "rubric": "Review",
+                "watch": ["source"],
+            }
+        },
+        "evaluators": {
+            "reviewer": {
+                "type": "command",
+                "command": [
+                    sys.executable,
+                    "-c",
+                    "import json; print(json.dumps({'verdict':'fail','rationale':'finding'}))",
+                ],
+            }
+        },
+    }
+    (tmp_path / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+    no_evidence = runner.invoke(
+        main, ["acknowledge", "review", "--reason", "reason", "--project", str(tmp_path)]
+    )
+    assert "No fresh evidence" in no_evidence.output
+
+    assert runner.invoke(main, ["run", "--project", str(tmp_path)]).exit_code == 0
+    empty = runner.invoke(
+        main, ["acknowledge", "review", "--reason", "   ", "--project", str(tmp_path)]
+    )
+    assert "reason must not be empty" in empty.output
+
+    payload["evaluators"]["reviewer"]["command"][-1] = (
+        "import json; print(json.dumps({'verdict':'pass','rationale':'clean'}))"
+    )
+    (tmp_path / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+    assert runner.invoke(main, ["run", "--project", str(tmp_path)]).exit_code == 0
+    passed = runner.invoke(
+        main, ["acknowledge", "review", "--reason", "reason", "--project", str(tmp_path)]
+    )
+    assert "already pass" in passed.output
 
 
 def test_debug_reports_stale_evidence_and_missing_command(tmp_path: Path, monkeypatch) -> None:

@@ -389,6 +389,14 @@ def test_setup_refuses_invalid_json_and_supports_module_invocation(
         install_hooks(tmp_path, "claude")
     assert settings.read_text(encoding="utf-8") == "{"
 
+    settings.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="non-object hook settings"):
+        install_hooks(tmp_path, "claude")
+
+    settings.write_text('{"hooks":[]}', encoding="utf-8")
+    with pytest.raises(ValueError, match="hooks value is not an object"):
+        install_hooks(tmp_path, "claude")
+
     settings.unlink()
     module_path = tmp_path / "__main__.py"
     monkeypatch.setattr(sys, "argv", [str(module_path)])
@@ -478,6 +486,10 @@ def test_uninstall_handles_missing_and_rejects_invalid_settings(tmp_path: Path) 
     path.parent.mkdir(parents=True)
     path.write_text("{", encoding="utf-8")
     with pytest.raises(ValueError, match="Refusing to modify invalid"):
+        uninstall_hooks(tmp_path, "claude")
+
+    path.write_text("[]", encoding="utf-8")
+    with pytest.raises(ValueError, match="non-object hook settings"):
         uninstall_hooks(tmp_path, "claude")
 
     path.write_text('{"hooks":"invalid"}', encoding="utf-8")

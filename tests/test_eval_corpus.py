@@ -83,3 +83,36 @@ def test_expected_corpus_outcomes_can_succeed() -> None:
             _verdict("uncertain"),
         ],
     )
+
+
+def test_corpus_reports_missing_majorities_and_required_findings() -> None:
+    passing_case = EvaluationCorpus(
+        schema_version=1,
+        rubric="review",
+        cases=[{"id": "good", "expected_verdict": "pass", "goal": "safe", "diff": "safe"}],
+    ).cases[0]
+    assert (
+        "passing majority"
+        in case_failures(passing_case, [_verdict("fail"), _verdict("uncertain"), _verdict("pass")])[
+            0
+        ]
+    )
+
+    failing_case = EvaluationCorpus(
+        schema_version=1,
+        rubric="review",
+        cases=[
+            {
+                "id": "bad",
+                "expected_verdict": "fail",
+                "goal": "safe",
+                "diff": "unsafe",
+                "required_finding_terms": ["boundary"],
+            }
+        ],
+    ).cases[0]
+    failures = case_failures(
+        failing_case, [_verdict("uncertain"), _verdict("uncertain"), _verdict("fail")]
+    )
+    assert any("failing majority" in failure for failure in failures)
+    assert any("required finding terms" in failure for failure in failures)
