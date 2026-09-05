@@ -9,7 +9,13 @@ import yaml
 
 from constraintloop import __version__
 from constraintloop.hooks import handle_hook
-from constraintloop.setup_hooks import install_hooks, uninstall_hooks
+from constraintloop.setup_hooks import (
+    hooks_disabled,
+    install_hooks,
+    install_pre_push_hook,
+    uninstall_hooks,
+    uninstall_pre_push_hook,
+)
 from constraintloop.state import create_advisory_acknowledgment, load_latest_result, load_session
 
 
@@ -56,6 +62,25 @@ def test_recursive_stop_hook_succeeds_without_loading_contract(
     assert response == {}
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"agent_id": "subagent-1"},
+        {"agentId": "subagent-1"},
+        {"background_tasks": [{"id": "task-1", "status": "running"}]},
+        {"session_crons": [{"id": "cron-1", "schedule": "* * * * *"}]},
+    ],
+)
+def test_stop_defers_intermediate_agent_states_without_loading_contract(
+    tmp_path: Path, payload: dict[str, object]
+) -> None:
+    assert handle_hook(tmp_path, "claude", "stop", payload) == {}
+
+
+def test_post_tool_skips_subagent_transient_state_without_loading_contract(tmp_path: Path) -> None:
+    assert handle_hook(tmp_path, "claude", "post-tool", {"agent_id": "subagent-1"}) == {}
+
+
 def test_pre_tool_protects_contract(tmp_path: Path) -> None:
     response = handle_hook(
         tmp_path,
@@ -80,7 +105,7 @@ def test_pre_tool_protects_local_secrets(tmp_path: Path) -> None:
 
 def test_setup_preserves_existing_hooks_and_is_idempotent(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
-    path = tmp_path / ".claude" / "settings.json"
+    path = tmp_path / ".claude" / "settings.local.json"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -98,6 +123,48 @@ def test_setup_preserves_existing_hooks_and_is_idempotent(tmp_path: Path, monkey
     assert commands.count("existing-hook") == 1
     assert sum("constraintloop hook" in command for command in commands) == 1
     assert data["permissions"] == {"allow": ["Read"]}
+
+
+def test_setup_migrates_owned_claude_hooks_out_of_shared_settings(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
+    shared = tmp_path / ".claude" / "settings.json"
+    shared.parent.mkdir(parents=True)
+    shared.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {"type": "command", "command": "third-party-check"},
+                                {
+                                    "type": "command",
+                                    "command": (
+                                        "constraintloop hook --adapter claude --event stop "
+                                        "--project ."
+                                    ),
+                                },
+                            ]
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    local = install_hooks(tmp_path, "claude")
+
+    shared_commands = [
+        hook["command"]
+        for group in json.loads(shared.read_text(encoding="utf-8"))["hooks"]["Stop"]
+        for hook in group["hooks"]
+    ]
+    assert shared_commands == ["third-party-check"]
+    assert local == tmp_path / ".claude" / "settings.local.json"
+    assert "constraintloop hook" in local.read_text(encoding="utf-8")
 
 
 def test_setup_uses_resolved_project_local_executable(tmp_path: Path, monkeypatch) -> None:
@@ -315,7 +382,7 @@ def test_pre_tool_allows_reads_and_safe_patch_context_but_denies_mutation(tmp_pa
 def test_setup_refuses_invalid_json_and_supports_module_invocation(
     tmp_path: Path, monkeypatch
 ) -> None:
-    settings = tmp_path / ".claude" / "settings.json"
+    settings = tmp_path / ".claude" / "settings.local.json"
     settings.parent.mkdir(parents=True)
     settings.write_text("{", encoding="utf-8")
     with pytest.raises(ValueError, match="Refusing to overwrite"):
@@ -376,7 +443,7 @@ def test_uninstall_removes_only_constraintloop_hooks_and_is_idempotent(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
-    path = tmp_path / ".claude" / "settings.json"
+    path = tmp_path / ".claude" / "settings.local.json"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
@@ -398,11 +465,16 @@ def test_uninstall_removes_only_constraintloop_hooks_and_is_idempotent(
     assert data["permissions"] == {"allow": ["Read"]}
     assert data["hooks"]["Stop"][0]["hooks"][0]["command"] == "third-party check"
     assert uninstall_hooks(tmp_path, "claude")[1] == 0
+    assert hooks_disabled(tmp_path, "claude")
+    assert handle_hook(tmp_path, "claude", "stop", {}) == {}
+
+    install_hooks(tmp_path, "claude")
+    assert not hooks_disabled(tmp_path, "claude")
 
 
 def test_uninstall_handles_missing_and_rejects_invalid_settings(tmp_path: Path) -> None:
     assert uninstall_hooks(tmp_path, "claude")[1] == 0
-    path = tmp_path / ".claude" / "settings.json"
+    path = tmp_path / ".claude" / "settings.local.json"
     path.parent.mkdir(parents=True)
     path.write_text("{", encoding="utf-8")
     with pytest.raises(ValueError, match="Refusing to modify invalid"):
@@ -410,3 +482,99 @@ def test_uninstall_handles_missing_and_rejects_invalid_settings(tmp_path: Path) 
 
     path.write_text('{"hooks":"invalid"}', encoding="utf-8")
     assert uninstall_hooks(tmp_path, "claude")[1] == 0
+
+
+def test_uninstall_removes_legacy_claude_wiring_and_tombstone_survives_restore(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
+    legacy = tmp_path / ".claude" / "settings.json"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": (
+                                        "constraintloop hook --adapter claude --event stop "
+                                        "--project ."
+                                    ),
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _, removed = uninstall_hooks(tmp_path, "claude")
+    assert removed == 1
+    assert hooks_disabled(tmp_path, "claude")
+
+    # A checkout can restore the committed wiring, but the local tombstone keeps it inert.
+    legacy.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "Stop": [
+                        {
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": (
+                                        "constraintloop hook --adapter claude --event stop "
+                                        "--project ."
+                                    ),
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert handle_hook(tmp_path, "claude", "stop", {}) == {}
+
+
+def test_malformed_uninstall_tombstone_fails_safe(tmp_path: Path) -> None:
+    tombstone = tmp_path / ".constraintloop" / "hooks-disabled.json"
+    tombstone.parent.mkdir(parents=True)
+    tombstone.write_text("{", encoding="utf-8")
+
+    assert hooks_disabled(tmp_path, "claude")
+    assert handle_hook(tmp_path, "claude", "stop", {}) == {}
+
+
+def test_pre_push_hook_is_opt_in_idempotent_and_owned(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
+
+    path = install_pre_push_hook(tmp_path)
+    assert path == tmp_path / ".git" / "hooks" / "pre-push"
+    assert "run --phase push" in path.read_text(encoding="utf-8")
+    assert path.stat().st_mode & 0o111
+    assert install_pre_push_hook(tmp_path) == path
+
+    removed_path, removed = uninstall_pre_push_hook(tmp_path)
+    assert removed_path == path
+    assert removed
+    assert not path.exists()
+
+
+def test_pre_push_setup_preserves_unowned_hook(tmp_path: Path, monkeypatch) -> None:
+    hooks = tmp_path / ".git" / "hooks"
+    hooks.mkdir(parents=True)
+    path = hooks / "pre-push"
+    path.write_text("#!/bin/sh\nthird-party-check\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
+
+    with pytest.raises(ValueError, match="Refusing to replace"):
+        install_pre_push_hook(tmp_path)
+    assert path.read_text(encoding="utf-8") == "#!/bin/sh\nthird-party-check\n"

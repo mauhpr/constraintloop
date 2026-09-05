@@ -90,7 +90,7 @@ def test_codex_evaluator_is_ephemeral_read_only_and_structured(
         output_path.write_text(json.dumps(_verdict()), encoding="utf-8")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    monkeypatch.setattr("constraintloop.native_cli_evaluator.subprocess.run", fake_run)
+    monkeypatch.setattr("constraintloop.native_cli_evaluator.run_bounded", fake_run)
     monkeypatch.setenv("CONSTRAINTLOOP_CALLER_ADAPTER", "codex")
     monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-native-agent")
     monkeypatch.setenv("UNRELATED_REPOSITORY_SECRET", "also-must-not-reach-agent")
@@ -109,7 +109,7 @@ def test_codex_evaluator_is_ephemeral_read_only_and_structured(
     disabled = [command[index + 1] for index, item in enumerate(command) if item == "--disable"]
     assert {"shell_tool", "unified_exec", "code_mode_host", "apps"} <= set(disabled)
     assert command[command.index("--model") + 1] == "codex-model"
-    assert captured["kwargs"]["input"] == _bundle().model_dump_json()
+    assert captured["kwargs"]["input_text"] == _bundle().model_dump_json()
     assert "CONSTRAINTLOOP_CALLER_ADAPTER" not in captured["kwargs"]["env"]
     assert "OPENAI_API_KEY" not in captured["kwargs"]["env"]
     assert "UNRELATED_REPOSITORY_SECRET" not in captured["kwargs"]["env"]
@@ -139,7 +139,7 @@ def test_claude_evaluator_disables_tools_and_extracts_structured_output(
         stdout = json.dumps({"type": "result", "structured_output": _verdict()})
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr("constraintloop.native_cli_evaluator.subprocess.run", fake_run)
+    monkeypatch.setattr("constraintloop.native_cli_evaluator.run_bounded", fake_run)
     result = evaluate_with_native_cli(
         _bundle(), adapter="claude", timeout_seconds=45, model="claude-model"
     )
@@ -183,7 +183,7 @@ def test_native_evaluator_fails_on_process_and_output_errors(
 ) -> None:
     monkeypatch.setattr("constraintloop.native_cli_evaluator.shutil.which", lambda _: "/bin/claude")
     monkeypatch.setattr(
-        "constraintloop.native_cli_evaluator.subprocess.run",
+        "constraintloop.native_cli_evaluator.run_bounded",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args[0], 7, stdout="", stderr="authentication failed"
         ),
@@ -192,7 +192,7 @@ def test_native_evaluator_fails_on_process_and_output_errors(
         evaluate_with_native_cli(_bundle(), adapter="claude", timeout_seconds=10)
 
     monkeypatch.setattr(
-        "constraintloop.native_cli_evaluator.subprocess.run",
+        "constraintloop.native_cli_evaluator.run_bounded",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args[0], 0, stdout=json.dumps({"type": "result"}), stderr=""
         ),
@@ -207,7 +207,7 @@ def test_native_evaluator_timeout_is_bounded(monkeypatch: pytest.MonkeyPatch) ->
     def time_out(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
 
-    monkeypatch.setattr("constraintloop.native_cli_evaluator.subprocess.run", time_out)
+    monkeypatch.setattr("constraintloop.native_cli_evaluator.run_bounded", time_out)
     with pytest.raises(NativeEvaluatorError, match="timed out after 5s"):
         evaluate_with_native_cli(_bundle(), adapter="codex", timeout_seconds=5)
 
@@ -223,7 +223,7 @@ def test_claude_rejects_bad_result_envelopes(monkeypatch: pytest.MonkeyPatch) ->
 
     for raw in outcomes:
         monkeypatch.setattr(
-            "constraintloop.native_cli_evaluator.subprocess.run",
+            "constraintloop.native_cli_evaluator.run_bounded",
             lambda *args, raw=raw, **kwargs: subprocess.CompletedProcess(
                 args[0], 0, stdout=raw, stderr=""
             ),

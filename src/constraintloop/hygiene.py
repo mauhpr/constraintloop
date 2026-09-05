@@ -7,6 +7,10 @@ from pathlib import Path
 
 GITIGNORE_ENTRIES = (
     ".constraintloop/state/",
+    ".constraintloop/hooks-disabled.json",
+    ".claude/settings.local.json",
+    ".codex/hooks.json",
+    ".gemini/settings.json",
     "constraintloop.local.yml",
     "constraintloop.local.yaml",
 )

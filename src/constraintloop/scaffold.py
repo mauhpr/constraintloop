@@ -70,6 +70,7 @@ def initial_contract(project_root: Path) -> dict[str, Any]:
             "max_auto_retries": 2,
             "concurrency": 4,
             "evidence_output_limit": 65536,
+            "hook_output_limit": 4096,
             "evaluation_bundle_limit": 102400,
         },
         "constraints": constraints,

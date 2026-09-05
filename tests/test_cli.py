@@ -22,6 +22,10 @@ def test_init_detects_python_tests(tmp_path: Path) -> None:
     assert {"diff_hygiene", "python_syntax", "tests"} <= set(contract.constraints)
     ignored = (tmp_path / ".gitignore").read_text(encoding="utf-8")
     assert ".constraintloop/state/" in ignored
+    assert ".constraintloop/hooks-disabled.json" in ignored
+    assert ".claude/settings.local.json" in ignored
+    assert ".codex/hooks.json" in ignored
+    assert ".gemini/settings.json" in ignored
     assert "constraintloop.local.yml" in ignored
 
 

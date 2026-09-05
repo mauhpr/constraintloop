@@ -16,3 +16,6 @@ dist/
 .constraintloop/
 constraintloop.local.yml
 constraintloop.local.yaml
+.claude/settings.local.json
+.codex/hooks.json
+.gemini/settings.json

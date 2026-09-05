@@ -12,6 +12,7 @@ from typing import Any, cast
 
 import click
 
+from constraintloop import __version__
 from constraintloop.config import (
     ContractError,
     contract_digest,
@@ -40,7 +41,13 @@ from constraintloop.scaffold import (
     write_initial_contract,
     write_proposal,
 )
-from constraintloop.setup_hooks import ADAPTERS, install_hooks, uninstall_hooks
+from constraintloop.setup_hooks import (
+    ADAPTERS,
+    install_hooks,
+    install_pre_push_hook,
+    uninstall_hooks,
+    uninstall_pre_push_hook,
+)
 from constraintloop.state import (
     create_advisory_acknowledgment,
     create_waiver,
@@ -56,7 +63,7 @@ def _root(value: Path) -> Path:
 
 
 @click.group()
-@click.version_option()
+@click.version_option(version=__version__)
 def main() -> None:
     """Evidence-based completion gates for AI coding agents."""
 
@@ -87,7 +94,12 @@ def init_command(project: Path, force: bool) -> None:
     "--hook-executable",
     help="Persistent command used to invoke ConstraintLoop from generated hooks.",
 )
-def setup_command(adapter: str, project: Path, hook_executable: str | None) -> None:
+@click.option(
+    "--pre-push",
+    is_flag=True,
+    help="Also install an opt-in Git pre-push hook for push-phase gates.",
+)
+def setup_command(adapter: str, project: Path, hook_executable: str | None, pre_push: bool) -> None:
     """Install idempotent Claude, Codex, and Gemini hook entries."""
     root = _root(project)
     _protect_local_files(root)
@@ -102,6 +114,12 @@ def setup_command(adapter: str, project: Path, hook_executable: str | None) -> N
         except (OSError, ValueError) as exc:
             raise click.ClickException(f"Could not install {name} hooks: {exc}") from exc
         click.echo(f"Updated {path}")
+    if pre_push:
+        try:
+            path = install_pre_push_hook(root, hook_executable=hook_executable)
+        except (OSError, ValueError) as exc:
+            raise click.ClickException(f"Could not install pre-push hook: {exc}") from exc
+        click.echo(f"Updated {path}")
 
 
 @main.command("uninstall")
@@ -112,7 +130,8 @@ def setup_command(adapter: str, project: Path, hook_executable: str | None) -> N
     show_default=True,
 )
 @click.option("--project", type=click.Path(path_type=Path), default=Path("."))
-def uninstall_command(adapter: str, project: Path) -> None:
+@click.option("--pre-push", is_flag=True, help="Also remove an owned Git pre-push hook.")
+def uninstall_command(adapter: str, project: Path, pre_push: bool) -> None:
     """Remove ConstraintLoop hooks while preserving unrelated settings."""
     root = _root(project)
     adapters = list(ADAPTERS) if adapter == "all" else [adapter]
@@ -122,6 +141,12 @@ def uninstall_command(adapter: str, project: Path) -> None:
         except (OSError, ValueError) as exc:
             raise click.ClickException(f"Could not remove {name} hooks: {exc}") from exc
         click.echo(f"Removed {removed} ConstraintLoop hook(s) from {path}")
+    if pre_push:
+        try:
+            path, removed = uninstall_pre_push_hook(root)
+        except (OSError, ValueError) as exc:
+            raise click.ClickException(f"Could not remove pre-push hook: {exc}") from exc
+        click.echo(f"{'Removed' if removed else 'No'} ConstraintLoop pre-push hook at {path}")
 
 
 def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -> None:
@@ -134,7 +159,7 @@ def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -
         root,
         contract,
         use_cache=not no_cache and phase != Phase.CI,
-        allow_waivers=phase != Phase.CI,
+        allow_waivers=phase not in {Phase.PUSH, Phase.CI},
         progress=None if json_output else lambda message: click.echo(message, err=True),
     ).run(phase)
     click.echo(
@@ -147,7 +172,7 @@ def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -
 
 
 @main.command("run")
-@click.option("--phase", type=click.Choice(["change", "stop"]), default="stop")
+@click.option("--phase", type=click.Choice(["change", "stop", "push"]), default="stop")
 @click.option("--project", type=click.Path(path_type=Path), default=Path("."))
 @click.option("--json", "json_output", is_flag=True)
 @click.option("--no-cache", is_flag=True)
@@ -285,7 +310,7 @@ def _format_status_value(value: object) -> str:
 
 
 @main.command("explain")
-@click.option("--phase", type=click.Choice(["change", "stop", "ci"]), default="stop")
+@click.option("--phase", type=click.Choice(["change", "stop", "push", "ci"]), default="stop")
 @click.option("--project", type=click.Path(path_type=Path), default=Path("."))
 @click.option("--json", "json_output", is_flag=True)
 def explain_command(phase: str, project: Path, json_output: bool) -> None:

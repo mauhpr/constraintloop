@@ -11,6 +11,7 @@ from constraintloop.models import (
     ConstraintResult,
     Contract,
     Enforcement,
+    EvidenceRecord,
     Phase,
     RubricConstraint,
     Verdict,
@@ -480,3 +481,37 @@ def test_summary_formats_nested_structured_evidence(tmp_path: Path) -> None:
     summary = format_summary(ConstraintEngine(tmp_path, contract).run(Phase.STOP))
 
     assert 'counts={"current":2}' in summary
+
+
+def test_compact_summary_keeps_failed_tests_and_omits_progress_noise() -> None:
+    result = ConstraintResult(
+        constraint_id="tests",
+        kind="command",
+        verdict=Verdict.FAIL,
+        enforcement=Enforcement.REQUIRED,
+        input_digest="digest",
+        message="Command exited with code 1",
+        output_tail=(
+            "." * 500
+            + "\nE       AssertionError: expected current migration head\n"
+            + "FAILED tests/test_migrations.py::test_single_head - AssertionError\n"
+            + "= 1 failed, 99 passed in 4.2s ="
+        ),
+    )
+    summary = format_summary(
+        EvidenceRecord(
+            run_id="run",
+            project_root="/project",
+            contract_digest="digest",
+            phase=Phase.STOP,
+            results=[result],
+        ),
+        include_output=True,
+        output_limit=1024,
+    )
+
+    assert "Results: fail=1" in summary
+    assert "tests/test_migrations.py::test_single_head" in summary
+    assert "AssertionError: expected current migration head" in summary
+    assert "." * 100 not in summary
+    assert "constraintloop debug tests" in summary

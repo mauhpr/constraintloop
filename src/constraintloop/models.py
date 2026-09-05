@@ -32,6 +32,7 @@ class Enforcement(StrEnum):
 class Phase(StrEnum):
     CHANGE = "change"
     STOP = "stop"
+    PUSH = "push"
     CI = "ci"
 
 
@@ -44,6 +45,7 @@ class ContractSettings(StrictModel):
     max_auto_retries: int = Field(default=2, ge=0, le=20)
     concurrency: int = Field(default=4, ge=1, le=32)
     evidence_output_limit: int = Field(default=65_536, ge=1_024, le=1_048_576)
+    hook_output_limit: int = Field(default=4_096, ge=512, le=32_768)
     evaluation_bundle_limit: int = Field(default=102_400, ge=4_096, le=2_097_152)
     progress_interval_seconds: float = Field(default=15.0, ge=0.1, le=300)
 

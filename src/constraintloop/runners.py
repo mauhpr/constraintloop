@@ -5,13 +5,15 @@ from __future__ import annotations
 import hashlib
 import json
 import operator
+import os
 import re
-import subprocess
 import time
 from collections.abc import Callable
 from pathlib import Path
+from subprocess import TimeoutExpired
 from typing import Any, cast
 
+from constraintloop._process import run_bounded
 from constraintloop.models import (
     ArtifactConstraint,
     CommandConstraint,
@@ -397,18 +399,20 @@ def _run_command(
     if not working_dir.is_dir():
         return f"Command cwd does not exist: {cwd}"
     try:
-        result = subprocess.run(
+        environment = os.environ.copy()
+        existing_pythonpath = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = os.pathsep.join(
+            value for value in (str(project_root.resolve()), existing_pythonpath) if value
+        )
+        result = run_bounded(
             command,
             shell=shell,
             cwd=working_dir,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=timeout,
-            check=False,
+            env=environment,
         )
-    except subprocess.TimeoutExpired:
-        return f"Command timed out after {timeout:g}s"
+    except TimeoutExpired:
+        return f"Command timed out after {timeout:.3g}s"
     except (FileNotFoundError, OSError) as exc:
         return f"Command could not start: {exc}"
     return result.returncode, result.stdout or "", result.stderr or ""

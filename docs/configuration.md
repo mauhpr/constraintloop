@@ -22,6 +22,7 @@ Settings default to:
 | `max_auto_retries` | 2 | 0–20 |
 | `concurrency` | 4 | 1–32 |
 | `evidence_output_limit` | 65536 | 1024–1048576 bytes |
+| `hook_output_limit` | 4096 | 512–32768 bytes |
 | `evaluation_bundle_limit` | 102400 | 4096–2097152 bytes |
 | `progress_interval_seconds` | 15 | 0.1–300 seconds |
 
@@ -37,7 +38,7 @@ authoritative `constraintloop ci` command ignores local overlays and always
 evaluates the committed repository contract.
 
 Every constraint supports `description`, `enforcement` (`required` or
-`advisory`), `phases` (`change`, `stop`, `ci`), `watch` globs, dependency IDs
+`advisory`), `phases` (`change`, `stop`, `push`, `ci`), `watch` globs, dependency IDs
 in `needs`, `timeout_seconds`, and `enabled`. Dependencies must exist and the
 graph must be acyclic.
 Identifiers may contain letters, numbers, dots, underscores, and hyphens.
@@ -63,13 +64,17 @@ retry:
 
 No retries occur when `retry` is absent. A configured policy retries only the
 listed exit codes and, when enabled, timeouts or process startup failures.
-Every attempt is capped by the constraint's normal timeout. Retry and periodic
+Every attempt is capped by the constraint's normal timeout, which defaults to
+300 seconds and is always finite. On POSIX, a timeout terminates the entire
+spawned process group, including descendants that inherited the command's output
+pipes. Retry and periodic
 running status lines are emitted during human-readable runs; `--json` remains a
 single machine-readable document. `timeout_seconds` bounds each attempt and,
 unless overridden, the complete retry sequence including delays. Timeout
 retries require an explicit `total_timeout_seconds` greater than the per-attempt
 timeout. This keeps the total bound visible while leaving enough budget for a
-second attempt.
+second attempt. Command and command-evaluator processes run from the selected
+project root by default, and ConstraintLoop prepends that root to `PYTHONPATH`.
 
 Metric constraints add `parser` and `threshold`. A parser has type `json` or
 `regex`, reads `stdout`, `stderr`, or a project-contained `file`, and selects a
@@ -133,4 +138,7 @@ state, and dependency chains without executing any gate. Human-readable final
 summaries label concrete policy failures as `constraint` and startup,
 prerequisite, or evaluation errors as `environment`; the same
 `failure_category` is retained in JSON evidence.
+Hook responses use `hook_output_limit` to retain failing test names and the first
+useful traceback line without injecting the complete test log. The unabridged
+retained tail remains available with `constraintloop debug CONSTRAINT`.
 See `docs/convergence-loops.md` for the cycle protocol and stable exit codes.
