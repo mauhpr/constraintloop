@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import stat
+import subprocess
 import sys
 import tempfile
 from contextlib import suppress
@@ -15,7 +17,7 @@ from constraintloop import __version__
 
 ADAPTERS: dict[str, tuple[Path, dict[str, str]]] = {
     "claude": (
-        Path(".claude/settings.json"),
+        Path(".claude/settings.local.json"),
         {
             "SessionStart": "session-start",
             "UserPromptSubmit": "user-prompt",
@@ -48,6 +50,12 @@ ADAPTERS: dict[str, tuple[Path, dict[str, str]]] = {
         },
     ),
 }
+
+LEGACY_HOOK_PATHS: dict[str, tuple[Path, ...]] = {
+    "claude": (Path(".claude/settings.json"),),
+}
+_DISABLED_HOOKS_PATH = Path(".constraintloop/hooks-disabled.json")
+_PRE_PUSH_MARKER = "# Managed by ConstraintLoop; reinstall with constraintloop setup --pre-push"
 
 
 def install_hooks(project_root: Path, adapter: str, hook_executable: str | None = None) -> Path:
@@ -89,8 +97,11 @@ def install_hooks(project_root: Path, adapter: str, hook_executable: str | None 
                 else "run_shell_command|write_file|replace"
             )
         groups.append(group)
+    for legacy in LEGACY_HOOK_PATHS.get(adapter, ()):
+        _uninstall_from_path(project_root / legacy, adapter)
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_settings(path, data)
+    _set_hook_disabled(project_root, adapter, disabled=False)
     return path
 
 
@@ -133,20 +144,82 @@ def _looks_like_uvx(path: Path) -> bool:
 
 
 def uninstall_hooks(project_root: Path, adapter: str) -> tuple[Path, int]:
-    """Remove only ConstraintLoop hook entries and preserve all user settings."""
+    """Remove owned entries and persist a local tombstone against restored wiring."""
     relative, _ = ADAPTERS[adapter]
-    path = project_root / relative
+    primary = project_root / relative
+    removed = sum(
+        _uninstall_from_path(project_root / candidate, adapter)
+        for candidate in (relative, *LEGACY_HOOK_PATHS.get(adapter, ()))
+    )
+    _set_hook_disabled(project_root, adapter, disabled=True)
+    return primary, removed
+
+
+def hooks_disabled(project_root: Path, adapter: str) -> bool:
+    """Return whether this adapter was explicitly uninstalled in the project."""
+    path = project_root / _DISABLED_HOOKS_PATH
     try:
         data: Any = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return path, 0
+        return False
+    except (json.JSONDecodeError, OSError):
+        return True
+    if not isinstance(data, dict):
+        return True
+    disabled = data.get("disabled") if isinstance(data, dict) else None
+    return not isinstance(disabled, list) or adapter in disabled
+
+
+def install_pre_push_hook(project_root: Path, hook_executable: str | None = None) -> Path:
+    """Install an opt-in, repository-local pre-push gate."""
+    path = _git_hooks_dir(project_root) / "pre-push"
+    try:
+        existing = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        existing = ""
+    if existing and _PRE_PUSH_MARKER not in existing:
+        raise ValueError(
+            f"Refusing to replace existing pre-push hook {path}; wire "
+            "`constraintloop run --phase push` into the existing hook manually"
+        )
+    executable = hook_executable or _portable_executable(project_root)
+    project_argument = _portable_project_argument(project_root)
+    contents = (
+        "#!/bin/sh\n"
+        f"{_PRE_PUSH_MARKER}\n"
+        f"{executable} run --phase push --project {project_argument}\n"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_text(path, contents)
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return path
+
+
+def uninstall_pre_push_hook(project_root: Path) -> tuple[Path, bool]:
+    """Remove the pre-push hook only when ConstraintLoop owns the whole file."""
+    path = _git_hooks_dir(project_root) / "pre-push"
+    try:
+        contents = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return path, False
+    if _PRE_PUSH_MARKER not in contents:
+        raise ValueError(f"Refusing to remove non-ConstraintLoop pre-push hook {path}")
+    path.unlink()
+    return path, True
+
+
+def _uninstall_from_path(path: Path, adapter: str) -> int:
+    try:
+        data: Any = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return 0
     except json.JSONDecodeError as exc:
         raise ValueError(f"Refusing to modify invalid hook settings {path}: {exc}") from exc
     if not isinstance(data, dict):
         raise ValueError(f"Refusing to modify non-object hook settings {path}")
     hooks = data.get("hooks")
     if not isinstance(hooks, dict):
-        return path, 0
+        return 0
 
     marker = f" hook --adapter {adapter} "
     removed = 0
@@ -175,19 +248,65 @@ def uninstall_hooks(project_root: Path, adapter: str) -> tuple[Path, int]:
             hooks.pop(event)
     if removed:
         _write_settings(path, data)
-    return path, removed
+    return removed
+
+
+def _set_hook_disabled(project_root: Path, adapter: str, *, disabled: bool) -> None:
+    path = project_root / _DISABLED_HOOKS_PATH
+    try:
+        data: Any = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    raw_disabled = data.get("disabled", [])
+    if not isinstance(raw_disabled, list):
+        raw_disabled = []
+    adapters = {item for item in raw_disabled if isinstance(item, str) and item in ADAPTERS}
+    if disabled:
+        adapters.add(adapter)
+    else:
+        adapters.discard(adapter)
+    if adapters:
+        _write_settings(path, {"schema_version": 1, "disabled": sorted(adapters)})
+    else:
+        with suppress(FileNotFoundError):
+            path.unlink()
 
 
 def _write_settings(path: Path, data: dict[str, Any]) -> None:
+    _write_text(path, json.dumps(data, indent=2) + "\n")
+
+
+def _write_text(path: Path, contents: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(data, indent=2) + "\n")
+            handle.write(contents)
         os.replace(temporary, path)
     finally:
         with suppress(FileNotFoundError):
             os.unlink(temporary)
+
+
+def _git_hooks_dir(project_root: Path) -> Path:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--git-path", "hooks"],
+            cwd=project_root,
+            capture_output=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        result = None
+    if result is not None and result.returncode == 0 and result.stdout.strip():
+        path = Path(result.stdout.strip())
+        return path if path.is_absolute() else (project_root / path).resolve()
+    return _git_root(project_root) / ".git" / "hooks"
 
 
 def _validate_event_groups(path: Path, event: str, groups: object) -> None:

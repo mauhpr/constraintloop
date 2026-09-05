@@ -9,14 +9,14 @@ constraints:
     kind: command
     description: Compile Python sources after edits
     command: [python, -m, compileall, -q, src, tests]
-    phases: [change, stop, ci]
+    phases: [change, stop, push, ci]
     watch: ["src/**/*.py", "tests/**/*.py"]
 
   tests:
     kind: command
     description: Run unit tests before completion
-    command: [python, -m, pytest, -q]
-    phases: [stop, ci]
+    command: [python, -m, pytest, -q, -m, "not integration"]
+    phases: [stop, push, ci]
     watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml, uv.lock]
     needs: [python_syntax]
 
@@ -36,3 +36,12 @@ constraints:
     phases: [stop, ci]
     watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml, uv.lock]
     needs: [tests]
+
+  integration_tests:
+    kind: command
+    description: Run the heavyweight suite only before push and in CI
+    command: [python, -m, pytest, -q, -m, integration]
+    phases: [push, ci]
+    watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml, uv.lock]
+    needs: [tests]
+    timeout_seconds: 900

@@ -80,6 +80,7 @@ uv tool install constraintloop
 
 constraintloop init
 constraintloop setup --adapter all
+# Or add --pre-push above to wire heavyweight push gates locally.
 constraintloop run
 constraintloop ci
 ```
@@ -94,7 +95,7 @@ If you intentionally run setup through `uvx`, generated hooks pin the current
 ConstraintLoop version. You can choose another persistent invocation with, for
 example, `constraintloop setup --hook-executable "pipx run constraintloop"`.
 
-The five commands above establish this flow:
+The five core commands above establish this flow:
 
 ```mermaid
 sequenceDiagram
@@ -104,7 +105,7 @@ sequenceDiagram
     participant T as Project tools
     U->>CL: init + review contract
     U->>CL: setup hooks
-    A->>CL: run change/stop phase
+    A->>CL: run change/stop/push phase
     CL->>T: execute ready constraints
     T-->>CL: exit codes, metrics, artifacts
     CL-->>A: pass, repair, wait, or escalate
@@ -117,17 +118,26 @@ sequenceDiagram
 version: 1
 settings:
   max_auto_retries: 2
+  hook_output_limit: 4096
 
 constraints:
   tests:
     kind: command
     command: [python, -m, pytest, -q]
-    phases: [stop, ci]
+    phases: [stop, push, ci]
     watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
     retry:
       max_attempts: 3
       exit_codes: [1]
       delay_seconds: 2
+
+  integration_tests:
+    kind: command
+    command: [python, -m, pytest, -q, -m, integration]
+    phases: [push, ci]
+    watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
+    needs: [tests]
+    timeout_seconds: 900
 
   coverage:
     kind: metric
@@ -223,16 +233,22 @@ advisory until their false-positive and false-negative rates are measured.
 | --- | --- | --- |
 | `change` | After a file-changing tool action | Fast syntax, formatting, or diff checks |
 | `stop` | When the agent attempts to finish | Tests, build checks, and advisory review |
+| `push` | Explicit local run or opt-in Git pre-push hook | Full integration and platform suites |
 | `ci` | Protected hosted workflow | Authoritative uncached and waiver-free verification |
 
 1. `SessionStart` tells the coding agent which required gates exist.
 2. The prompt hook records the user's goal as review evidence.
 3. Before tool execution, agent attempts to edit the contract or create a
    waiver are denied.
-4. After tool execution, `change` gates run and fresh results are injected.
+4. After a main-agent tool execution, `change` gates run and fresh results are
+   injected. Subagent tool and stop events are ignored because their working
+   tree may be intentionally transient.
 5. Before compaction, the completion policy is restated.
 6. At `Stop` / `AfterAgent`, required `stop` gates block completion. The agent
-   receives precise evidence and may repair the code a bounded number of times.
+   receives compact evidence and may repair the code a bounded number of times.
+   ConstraintLoop defers this evaluation while background tasks or scheduled
+   wakeups are active. Full retained output remains available through
+   `constraintloop debug ID`.
 7. Advisory failures require either passing fresh evidence or an explicit
    snapshot-bound explanation; delivery alone never counts as review.
 8. Repeated required failure stops autonomous repair and requests a human
@@ -241,6 +257,12 @@ advisory until their false-positive and false-negative rates are measured.
    it, and CI ignores it. The local CLI cannot authenticate whether its caller
    is human.
 9. `constraintloop ci` reruns every CI gate without local evidence or waivers.
+
+Every command constraint has a finite timeout (300 seconds by default). On POSIX,
+timeout cleanup terminates the entire spawned process group so TestContainers,
+Docker clients, and other descendants cannot keep inherited output pipes open.
+Commands run from their configured project-contained `cwd`, with the selected
+project root prepended to `PYTHONPATH`.
 
 Evidence is keyed by the constraint definition and the bytes of every file
 matched by `watch`. A source change therefore makes old evidence and waivers
@@ -252,8 +274,12 @@ For stronger machine-local gates, create a gitignored
 `constraintloop.local.yml`. ConstraintLoop recursively merges mappings over the
 repository contract and rejects changes that could weaken committed gates.
 The authoritative `constraintloop ci` command ignores this overlay.
-`init` and `setup` add the overlay names and `.constraintloop/state/` to the
-selected project's `.gitignore`, and warn if state is already tracked.
+`init` and `setup` add local state, the uninstall tombstone, generated agent hook
+settings, and overlay names to the selected project's `.gitignore`, and warn if
+state is already tracked. Claude uses its dedicated
+`.claude/settings.local.json` path. Explicit uninstall records a local tombstone,
+so a checkout that restores old committed hook wiring does not silently
+reactivate ConstraintLoop; setup clears the tombstone.
 
 ### Verdicts and what they mean
 
@@ -270,11 +296,14 @@ selected project's `.gitignore`, and warn if state is already tracked.
 ## Commands
 
 - `constraintloop init` — generate a reviewable initial contract.
-- `constraintloop setup --adapter claude|codex|gemini|all` — merge hook entries
-  while preserving existing hooks.
+- `constraintloop setup --adapter claude|codex|gemini|all [--pre-push]` — merge
+  agent hook entries while preserving existing hooks; optionally install an
+  owned Git pre-push hook for `push` gates.
 - `constraintloop uninstall --adapter claude|codex|gemini|all` — remove only
-  ConstraintLoop hook entries while preserving unrelated settings.
-- `constraintloop run --phase change|stop` — run local gates with fresh caching.
+  ConstraintLoop hook entries while preserving unrelated settings; pass
+  `--pre-push` to remove an owned Git hook too.
+- `constraintloop run --phase change|stop|push` — run local gates with fresh
+  caching. Push gates do not honor local waivers.
 - `constraintloop ci` — authoritative, uncached, waiver-free run.
 - `constraintloop cycle NAME --json` — execute one journaled loop transition.
 - `constraintloop supervise NAME` — poll pending evidence under a recoverable
@@ -282,7 +311,7 @@ selected project's `.gitignore`, and warn if state is already tracked.
 - `constraintloop loop-prompt NAME --adapter claude|codex` — print the bounded
   native-agent repair protocol without launching an agent.
 - `constraintloop status` — inspect evidence without executing commands.
-- `constraintloop explain --phase change|stop|ci` — show why each constraint
+- `constraintloop explain --phase change|stop|push|ci` — show why each constraint
   runs or is skipped, including matched and changed watch paths, cache state,
   and dependency chains.
 - `constraintloop baseline update ID|--all` — initialize or strengthen native
@@ -338,7 +367,7 @@ responses become `uncertain`; a required rubric therefore fails closed.
 
 ## Compatibility boundary
 
-The supported v0.3 surfaces are the CLI and exit codes, configuration schema,
+The supported v0.4 surfaces are the CLI and exit codes, configuration schema,
 evaluator command protocol, native hook responses, and schema-versioned
 evidence and cycle JSON. Python submodules are internal during initial
 development and are not covered by semantic-versioning compatibility promises.
@@ -358,7 +387,8 @@ policy. ConstraintLoop records which contract ran, which inputs it covered, and
 whether the evidence is still fresh.
 
 **Why do some constraints run after every action?** Put only fast feedback in
-the `change` phase. Expensive tests and reviews belong in `stop` and `ci`.
+the `change` phase. Keep unit checks in `stop`; put heavyweight integration
+suites in `push` and `ci`.
 
 **Can I use Codex or Claude Code instead of an API evaluator?** Yes. The native
 evaluator adapter prefers the active supported CLI and remains read-only.

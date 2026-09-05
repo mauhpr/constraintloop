@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -103,6 +104,43 @@ def test_command_retry_sequence_respects_total_constraint_timeout(tmp_path: Path
     assert result.verdict.value == "error"
     assert "timed out" in result.message
     assert elapsed < 0.3
+
+
+@pytest.mark.skipif(os.name != "posix", reason="process-group cleanup is POSIX-specific")
+def test_command_timeout_kills_descendants_that_inherit_output_pipes(tmp_path: Path) -> None:
+    code = (
+        "import subprocess, sys, time; "
+        "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)']); "
+        "time.sleep(5)"
+    )
+    spec = CommandConstraint(
+        kind="command",
+        command=[sys.executable, "-c", code],
+        timeout_seconds=0.05,
+    )
+
+    started = time.monotonic()
+    result = run_command_constraint(tmp_path, "tree", spec, "digest", 1024)
+    elapsed = time.monotonic() - started
+
+    assert result.verdict.value == "error"
+    assert result.message == "Command timed out after 0.05s"
+    assert elapsed < 1.5
+
+
+def test_command_runner_adds_project_root_to_pythonpath(tmp_path: Path) -> None:
+    (tmp_path / "project_helper.py").write_text("VALUE = 'imported'\n", encoding="utf-8")
+    (tmp_path / "subdir").mkdir()
+    spec = CommandConstraint(
+        kind="command",
+        command=[sys.executable, "-c", "import project_helper; print(project_helper.VALUE)"],
+        cwd="subdir",
+    )
+
+    result = run_command_constraint(tmp_path, "imports", spec, "digest", 1024)
+
+    assert result.verdict.value == "pass"
+    assert result.output_tail == "imported"
 
 
 def test_command_can_retry_timeout_with_explicit_total_budget(tmp_path: Path, monkeypatch) -> None:

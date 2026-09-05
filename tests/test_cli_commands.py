@@ -49,6 +49,34 @@ def test_run_ci_status_doctor_and_waive_commands(tmp_path: Path, monkeypatch) ->
     assert "already pass" in waiver.output
 
 
+def test_push_phase_runs_only_push_gates_without_local_waivers(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("CONSTRAINTLOOP_CACHE_DIR", str(tmp_path / "cache"))
+    payload = {
+        "constraints": {
+            "fast": {
+                "kind": "command",
+                "command": [sys.executable, "-c", "raise SystemExit(1)"],
+                "phases": ["stop"],
+            },
+            "integration": {
+                "kind": "command",
+                "command": [sys.executable, "-c", "print('integration ok')"],
+                "phases": ["push", "ci"],
+            },
+        }
+    }
+    (tmp_path / "constraintloop.yml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main, ["run", "--phase", "push", "--project", str(tmp_path), "--json"]
+    )
+
+    assert result.exit_code == 0, result.output
+    record = json.loads(result.output)
+    assert record["phase"] == "push"
+    assert [item["constraint_id"] for item in record["results"]] == ["integration"]
+
+
 def test_doctor_deep_reports_missing_inputs_environment_and_python_module(
     tmp_path: Path, monkeypatch
 ) -> None:

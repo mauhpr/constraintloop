@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from constraintloop._process import run_bounded
 from constraintloop.digest import redact_text
 from constraintloop.models import EvaluationBundle, EvaluatorCallMetadata, EvaluatorVerdict
 
@@ -258,16 +259,12 @@ def _run_process(
         if name in _ENVIRONMENT_ALLOWLIST or name.startswith("LC_")
     }
     try:
-        result = subprocess.run(
+        result = run_bounded(
             command,
-            input=bundle.model_dump_json(),
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
+            input_text=bundle.model_dump_json(),
             cwd=isolated,
             env=environment,
             timeout=timeout_seconds,
-            check=False,
         )
     except subprocess.TimeoutExpired as exc:
         raise NativeEvaluatorError(

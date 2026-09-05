@@ -4,6 +4,7 @@ settings:
   max_auto_retries: 2
   concurrency: 4
   evidence_output_limit: 65536
+  hook_output_limit: 4096
   evaluation_bundle_limit: 102400
 
 constraints:
@@ -11,7 +12,7 @@ constraints:
     kind: command
     description: Unit test suite
     command: [python, -m, pytest, -q]
-    phases: [stop, ci]
+    phases: [stop, push, ci]
     watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
 
   coverage:
@@ -30,6 +31,15 @@ constraints:
     needs: [unit_tests]
     phases: [stop, ci]
     watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
+
+  integration_tests:
+    kind: command
+    description: Heavy integration suite, excluded from frequent Stop gates
+    command: [python, -m, pytest, -q, -m, integration]
+    phases: [push, ci]
+    watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
+    needs: [unit_tests]
+    timeout_seconds: 900
 
   junit_evidence:
     kind: artifact

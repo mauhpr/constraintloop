@@ -516,7 +516,12 @@ def _rubric_cache_digest(base_digest: str, bundle: EvaluationBundle) -> str:
     return digest.hexdigest()
 
 
-def format_summary(record: EvidenceRecord, *, include_output: bool = False) -> str:
+def format_summary(
+    record: EvidenceRecord,
+    *,
+    include_output: bool = False,
+    output_limit: int | None = None,
+) -> str:
     has_advisories = record.passed and any(
         result.verdict
         not in {
@@ -528,6 +533,15 @@ def format_summary(record: EvidenceRecord, *, include_output: bool = False) -> s
     )
     outcome = "PASS WITH ADVISORIES" if has_advisories else "PASS" if record.passed else "BLOCKED"
     lines = [f"ConstraintLoop {record.phase.value}: {outcome} ({len(record.results)} constraints)"]
+    verdict_counts = {
+        verdict: sum(result.verdict == verdict for result in record.results) for verdict in Verdict
+    }
+    lines.append(
+        "Results: "
+        + ", ".join(
+            f"{verdict.value}={count}" for verdict, count in verdict_counts.items() if count
+        )
+    )
     categories = {
         category: sum(result.failure_category == category for result in record.results)
         for category in FailureCategory
@@ -558,8 +572,51 @@ def format_summary(record: EvidenceRecord, *, include_output: bool = False) -> s
             )
             lines.append(f"  evidence: {details}")
         if include_output and result.output_tail and result.verdict != Verdict.PASS:
-            lines.append(result.output_tail)
-    return "\n".join(lines)
+            output = (
+                _compact_output(result.output_tail)
+                if output_limit is not None
+                else result.output_tail
+            )
+            lines.append(output)
+            if output_limit is not None:
+                lines.append(f"  full output: constraintloop debug {result.constraint_id}")
+    summary = "\n".join(lines)
+    return _truncate_utf8(summary, output_limit) if output_limit is not None else summary
+
+
+def _compact_output(output: str, *, max_lines: int = 12) -> str:
+    """Extract high-signal failure lines from common test and command output."""
+    lines = [line.rstrip() for line in output.splitlines() if line.strip()]
+    failures = [line for line in lines if line.lstrip().startswith(("FAILED ", "ERROR "))]
+    traceback = next(
+        (
+            line
+            for line in lines
+            if re.match(r"^\s*E\s+\S", line) or re.match(r"^\S*(?:Error|Exception):\s", line)
+        ),
+        None,
+    )
+    selected = failures[: max_lines - 1]
+    if traceback is not None and traceback not in selected:
+        selected.append(traceback)
+    if not selected:
+        meaningful = [line for line in lines if not re.fullmatch(r"[.sSxXfFE%\d\s\[\]/=-]+", line)]
+        selected = meaningful[-max_lines:]
+    if not selected:
+        selected = lines[-max_lines:]
+    prefix = "[output summary]"
+    if len(selected) < len(lines):
+        prefix += f" ({len(lines) - len(selected)} lines omitted)"
+    return prefix + ("\n" + "\n".join(selected) if selected else "")
+
+
+def _truncate_utf8(value: str, limit: int) -> str:
+    encoded = value.encode()
+    if len(encoded) <= limit:
+        return value
+    marker = "\n[hook summary truncated; use constraintloop debug ID for full output]"
+    keep = max(0, limit - len(marker.encode()))
+    return encoded[:keep].decode("utf-8", errors="ignore") + marker
 
 
 def _format_detail(value: object) -> str:

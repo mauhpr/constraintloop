@@ -369,6 +369,13 @@
           "title": "Evidence Output Limit",
           "type": "integer"
         },
+        "hook_output_limit": {
+          "default": 4096,
+          "maximum": 32768,
+          "minimum": 512,
+          "title": "Hook Output Limit",
+          "type": "integer"
+        },
         "max_auto_retries": {
           "default": 2,
           "maximum": 20,
@@ -745,6 +752,7 @@
       "enum": [
         "change",
         "stop",
+        "push",
         "ci"
       ],
       "title": "Phase",

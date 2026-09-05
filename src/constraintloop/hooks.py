@@ -12,6 +12,7 @@ from constraintloop.config import ContractError, load_contract
 from constraintloop.engine import ConstraintEngine, blocking_results, format_summary
 from constraintloop.loops import run_cycle
 from constraintloop.models import LoopState, Phase, Verdict
+from constraintloop.setup_hooks import hooks_disabled
 from constraintloop.state import advisory_acknowledgment_reason, load_session, save_session
 
 
@@ -21,12 +22,30 @@ def handle_hook(
     event: str,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
+    if hooks_disabled(project_root, adapter):
+        return {}
+
     # Claude re-runs Stop hooks after a hook has already blocked completion and
     # marks that recursive invocation explicitly. Blocking again traps the
     # agent in a hook loop, so the recursive call must succeed without running
     # the contract a second time.
     if event == "stop" and (
         payload.get("stop_hook_active") is True or payload.get("stopHookActive") is True
+    ):
+        return {}
+
+    # Project hooks also run inside subagents, whose files may be intentionally
+    # incomplete. Main-thread gates own lifecycle evaluation.
+    if event in {"post-tool", "stop"} and (
+        payload.get("agent_id") is not None or payload.get("agentId") is not None
+    ):
+        return {}
+
+    # A turn paused for background work or a scheduled wakeup is not a final
+    # completion boundary. Evaluate when the main agent yields with no work in flight.
+    if event == "stop" and any(
+        isinstance(payload.get(field), list) and payload[field]
+        for field in ("background_tasks", "backgroundTasks", "session_crons", "sessionCrons")
     ):
         return {}
 
@@ -148,7 +167,11 @@ def handle_hook(
         state.pop("failed_snapshot", None)
         if advisories:
             snapshot = _result_snapshot(advisories)
-            summary = format_summary(record, include_output=True)
+            summary = format_summary(
+                record,
+                include_output=True,
+                output_limit=contract.settings.hook_output_limit,
+            )
             if state.get("advisory_feedback_snapshot") != snapshot:
                 state["advisory_feedback_snapshot"] = snapshot
                 save_session(project_root, session_id, state)
@@ -183,10 +206,21 @@ def handle_hook(
             )
         state.pop("advisory_feedback_snapshot", None)
         save_session(project_root, session_id, state)
-        return _allow_response(adapter, format_summary(record, include_output=True))
+        return _allow_response(
+            adapter,
+            format_summary(
+                record,
+                include_output=True,
+                output_limit=contract.settings.hook_output_limit,
+            ),
+        )
 
     if cycle is not None:
-        summary = format_summary(record, include_output=True)
+        summary = format_summary(
+            record,
+            include_output=True,
+            output_limit=contract.settings.hook_output_limit,
+        )
         detail = (
             f"\nLoop {cycle.loop}: {cycle.state.value}; "
             f"repair attempt {cycle.repair_attempt}. {cycle.next_action}"
@@ -200,7 +234,11 @@ def handle_hook(
     state["attempts"] = attempts
     state["failed_snapshot"] = snapshot
     save_session(project_root, session_id, state)
-    summary = format_summary(record, include_output=True)
+    summary = format_summary(
+        record,
+        include_output=True,
+        output_limit=contract.settings.hook_output_limit,
+    )
     if attempts <= contract.settings.max_auto_retries:
         return _block_response(
             adapter,
@@ -302,6 +340,7 @@ def _protected_mutation(payload: dict[str, Any], serialized: str) -> bool:
         "constraintloop." + "yml",
         "constraintloop." + "yaml",
         ".constraintloop/" + "secrets.env",
+        ".constraintloop/" + "hooks-disabled.json",
     )
     tool_name = str(payload.get("tool_name") or payload.get("toolName") or "").lower()
     tool_input = payload.get("tool_input", payload.get("toolInput", payload))

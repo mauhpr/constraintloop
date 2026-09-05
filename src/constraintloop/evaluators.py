@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from subprocess import TimeoutExpired
 from typing import Any
 
 from pydantic import ValidationError
 
+from constraintloop._process import run_bounded
 from constraintloop.models import (
     AnthropicEvaluatorConfig,
     CommandEvaluatorConfig,
@@ -71,19 +72,21 @@ class CommandEvaluator:
     def evaluate(self, bundle: EvaluationBundle) -> EvaluatorVerdict:
         self.last_metadata = None
         try:
-            result = subprocess.run(
+            environment = {**os.environ, **self.environment}
+            if self.cwd is not None:
+                existing_pythonpath = environment.get("PYTHONPATH")
+                environment["PYTHONPATH"] = os.pathsep.join(
+                    value for value in (str(self.cwd.resolve()), existing_pythonpath) if value
+                )
+            result = run_bounded(
                 self.config.command,
                 shell=self.config.shell,
-                input=bundle.model_dump_json(),
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
+                input_text=bundle.model_dump_json(),
                 cwd=self.cwd,
-                env={**os.environ, **self.environment},
+                env=environment,
                 timeout=self.config.timeout_seconds,
-                check=False,
             )
-        except subprocess.TimeoutExpired as exc:
+        except TimeoutExpired as exc:
             raise EvaluatorError(
                 f"Evaluator timed out after {self.config.timeout_seconds:g}s"
             ) from exc

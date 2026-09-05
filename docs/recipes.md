@@ -9,8 +9,8 @@ silently from the strict schema.
 | Check | Recommended phase | Why |
 | --- | --- | --- |
 | Diff whitespace, syntax, targeted formatter | `change` | Fast enough to run after edits |
-| Unit tests, type checking, package build | `stop`, `ci` | Useful before completion, but noisy after every action |
-| Full integration or platform suite | `ci` | Hosted dependencies and longer runtime |
+| Unit tests, type checking, package build | `stop`, `push`, `ci` | Useful before completion and cheap enough to repeat before push |
+| Full integration or platform suite | `push`, `ci` | Local only when explicitly requested; authoritative in CI |
 | Design/security rubric | `stop`, optionally `ci` | Needs a complete patch and bounded evidence bundle |
 | Deployment or review status | `stop`, `ci` with pending code | External state may need polling |
 
@@ -28,8 +28,16 @@ constraintloop run --phase stop
 constraintloop ci
 ```
 
-The example separates fast syntax checking from session-end tests and coverage.
-Coverage depends on tests, so a test failure prevents a redundant coverage run.
+The example separates fast syntax checking from session-end tests, coverage, and
+push-only integration tests. Coverage and integration depend on unit tests, so a
+unit failure prevents redundant work. Install the optional local Git trigger with:
+
+```bash
+constraintloop setup --adapter all --pre-push
+```
+
+If another tool already owns `.git/hooks/pre-push`, ConstraintLoop refuses to
+replace it; add `constraintloop run --phase push` to that hook manually.
 
 ## Native Codex or Claude Code review
 

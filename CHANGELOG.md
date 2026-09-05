@@ -5,6 +5,21 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-04
+
+- Enforce finite command timeouts across complete POSIX process groups so
+  leaked Docker/TestContainers descendants cannot hold Stop gates open.
+- Add an explicit `push` phase and opt-in managed Git pre-push hook for heavy
+  integration gates while keeping frequent Stop checks fast.
+- Install Claude hooks in gitignored local settings, persist explicit uninstall
+  tombstones, and remove ConstraintLoop's own committed agent settings files.
+- Defer lifecycle evaluation for subagents and turns paused on background or
+  scheduled work.
+- Compact hook failure output to counts, failing checks, and high-signal error
+  lines while retaining full evidence for `constraintloop debug`.
+- Run commands and command evaluators from a stable project context with the
+  project root on `PYTHONPATH`.
+
 ## [0.3.1] - 2026-08-31
 
 - Prevent recursive Claude Stop-hook invocations from repeatedly blocking completion.

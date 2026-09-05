@@ -24,10 +24,11 @@ They should have different purposes:
 | --- | --- |
 | `change` | Fast feedback after edits |
 | `stop` | Complete local evidence before the agent finishes |
+| `push` | Opt-in heavyweight local evidence before Git push |
 | `ci` | Independent, uncached, waiver-free verification |
 
-If full tests run after every edit, remove `change` from that constraint and
-keep it in `stop` and `ci`.
+If full tests run after every edit, remove `change` from that constraint. Keep
+fast unit tests in `stop`; put full integration suites in `push` and `ci`.
 
 ### What is the difference between a failure, uncertainty, and pending state?
 
@@ -134,8 +135,26 @@ trusted completion boundary.
 No. `constraintloop setup` merges owned hook entries and preserves unrelated
 configuration. In a monorepo, hooks retain the exact directory selected with
 `--project` instead of falling back to the Git root. `constraintloop uninstall`
-removes only owned entries. Review and trust newly installed Codex project hooks
+removes only owned entries and writes a gitignored local tombstone. Restoring an
+old committed settings file therefore cannot silently reactivate an explicitly
+uninstalled hook; running setup again clears the tombstone. Claude hooks are
+installed into `.claude/settings.local.json`, not the shareable
+`.claude/settings.json`. Review and trust newly installed Codex project hooks
 through `/hooks`.
+
+### Why did a Stop gate not run while background work was active?
+
+ConstraintLoop evaluates completion only for the main agent at an idle turn
+boundary. It ignores subagent hook events and defers Stop/AfterAgent while the
+hook payload reports background tasks or scheduled wakeups. Run
+`constraintloop run --phase stop` explicitly when you want an immediate check.
+
+### How do I keep integration tests off the frequent Stop gate?
+
+Assign them to `phases: [push, ci]`. Run them explicitly with
+`constraintloop run --phase push`, or install the local pre-push integration with
+`constraintloop setup --adapter all --pre-push`. Existing non-ConstraintLoop Git
+hooks are never overwritten.
 
 ### Why does a hook say `Missing option --project`?
 
