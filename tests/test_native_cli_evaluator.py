@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -8,11 +9,15 @@ from typing import Any
 
 import pytest
 
-from constraintloop.models import EvaluationBundle
+import constraintloop.native_cli_evaluator as native_module
+from constraintloop.models import EvaluationBundle, EvaluatorVerdict
 from constraintloop.native_cli_evaluator import (
     _CODEX_TOOL_FEATURES,
     NativeEvaluatorError,
+    claude_main,
+    codex_main,
     evaluate_with_native_cli,
+    main,
     main_for,
     probe_adapter,
     select_adapter,
@@ -74,6 +79,18 @@ def test_selection_rejects_missing_or_unknown_adapters() -> None:
         select_adapter("other", environment={}, which=lambda _: None)
     with pytest.raises(NativeEvaluatorError, match="Neither"):
         select_adapter("auto", environment={}, which=lambda _: None)
+
+
+def test_explicit_selection_rejects_an_unhealthy_installed_adapter(monkeypatch) -> None:
+    monkeypatch.setattr(native_module.shutil, "which", lambda _: "/bin/codex")
+    monkeypatch.setattr(
+        native_module,
+        "probe_adapter",
+        lambda adapter: {"healthy": False, "reason": "login expired"},
+    )
+
+    with pytest.raises(NativeEvaluatorError, match="login expired"):
+        select_adapter("codex", which=native_module.shutil.which)
 
 
 def test_codex_evaluator_is_ephemeral_read_only_and_structured(
@@ -200,6 +217,21 @@ def test_native_evaluator_fails_on_process_and_output_errors(
     with pytest.raises(NativeEvaluatorError, match="without structured_output"):
         evaluate_with_native_cli(_bundle(), adapter="claude", timeout_seconds=10)
 
+    monkeypatch.setattr("constraintloop.native_cli_evaluator.shutil.which", lambda _: "/bin/codex")
+    monkeypatch.setattr(
+        "constraintloop.native_cli_evaluator.run_bounded",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout="", stderr=""),
+    )
+    with pytest.raises(NativeEvaluatorError, match="valid structured output"):
+        evaluate_with_native_cli(_bundle(), adapter="codex", timeout_seconds=10)
+
+    monkeypatch.setattr(
+        "constraintloop.native_cli_evaluator.run_bounded",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("cannot spawn")),
+    )
+    with pytest.raises(NativeEvaluatorError, match="could not start: cannot spawn"):
+        evaluate_with_native_cli(_bundle(), adapter="claude", timeout_seconds=10)
+
 
 def test_native_evaluator_timeout_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("constraintloop.native_cli_evaluator.shutil.which", lambda _: "/bin/codex")
@@ -285,6 +317,21 @@ def test_probe_adapter_reports_auth_and_failures(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("constraintloop.native_cli_evaluator.subprocess.run", timeout)
     assert probe_adapter("codex")["healthy"] is False
 
+    def invalid_claude_auth(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if "auth" in command:
+            output = "{"
+        elif "--help" in command:
+            output = (
+                "--disable-slash-commands --json-schema --max-budget-usd "
+                "--safe-mode --strict-mcp-config --tools"
+            )
+        else:
+            output = "2.1.220"
+        return subprocess.CompletedProcess(command, 0, stdout=output, stderr="")
+
+    monkeypatch.setattr("constraintloop.native_cli_evaluator.subprocess.run", invalid_claude_auth)
+    assert probe_adapter("claude")["authenticated"] is False
+
 
 def test_native_main_doctor_and_canary(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -327,3 +374,57 @@ def test_native_main_validates_limits(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(sys, "argv", arguments)
         with pytest.raises(SystemExit, match="2"):
             main_for()
+
+
+def test_native_main_evaluates_stdin_and_emits_metadata(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["native", "--adapter", "codex", "--model", "reviewer"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO(_bundle().model_dump_json()))
+    monkeypatch.setattr(native_module, "select_adapter", lambda requested: "codex")
+    monkeypatch.setattr(
+        native_module,
+        "evaluate_with_native_cli",
+        lambda *args, **kwargs: EvaluatorVerdict.model_validate(_verdict()),
+    )
+    monkeypatch.setattr(
+        native_module,
+        "probe_adapter",
+        lambda adapter: {"adapter": adapter, "version": "0.200.0", "healthy": True},
+    )
+
+    main_for()
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["verdict"] == "pass"
+    assert payload["metadata"]["provider"] == "codex-cli"
+    assert payload["metadata"]["model"] == "reviewer"
+    assert payload["metadata"]["cli_version"] == "0.200.0"
+
+
+def test_native_canary_reports_evaluator_errors(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["native", "--canary", "--adapter", "claude"])
+    monkeypatch.setattr(native_module, "select_adapter", lambda requested: "claude")
+    monkeypatch.setattr(
+        native_module,
+        "evaluate_with_native_cli",
+        lambda *args, **kwargs: (_ for _ in ()).throw(NativeEvaluatorError("quota exhausted")),
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        main_for()
+
+    assert "quota exhausted" in capsys.readouterr().err
+
+
+def test_native_entrypoint_wrappers_select_their_default_adapter(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(native_module, "main_for", lambda adapter="auto": calls.append(adapter))
+
+    main()
+    codex_main()
+    claude_main()
+
+    assert calls == ["auto", "codex", "claude"]

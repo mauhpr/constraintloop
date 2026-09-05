@@ -39,6 +39,19 @@ def test_project_secrets_do_not_leak_between_sequential_loads(tmp_path: Path, mo
     assert "PROJECT_API_KEY" not in os.environ
 
 
+def test_environment_loader_accepts_comments_export_and_quoted_values(
+    tmp_path: Path, monkeypatch
+) -> None:
+    directory = tmp_path / ".constraintloop"
+    directory.mkdir()
+    secret = directory / "secrets.env"
+    secret.write_text("\n# comment\nexport QUOTED_VALUE='hello world'\n", encoding="utf-8")
+    secret.chmod(0o600)
+    monkeypatch.delenv("QUOTED_VALUE", raising=False)
+
+    assert load_project_environment(tmp_path) == {"QUOTED_VALUE": "hello world"}
+
+
 def test_rejects_shell_syntax_in_secret_file(tmp_path: Path) -> None:
     directory = tmp_path / ".constraintloop"
     directory.mkdir()

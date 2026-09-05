@@ -389,3 +389,60 @@ def test_contract_rejects_invalid_names_empty_commands_and_multiple_stop_loops()
                 "loops": {"first": loop, "second": loop},
             }
         )
+
+
+def test_remaining_command_quorum_and_pattern_invariants() -> None:
+    metric = {
+        "kind": "metric",
+        "command": ["measure"],
+        "success_codes": [0, 75],
+        "parser": {"type": "json", "path": "value"},
+        "threshold": {"operator": "gte", "value": 1},
+    }
+    with pytest.raises(ValidationError, match="success_codes and pending_codes"):
+        Contract.model_validate({"constraints": {"metric": metric}})
+
+    with pytest.raises(ValidationError, match="explicit majority"):
+        Contract.model_validate(
+            {
+                "constraints": {
+                    "review": {
+                        "kind": "rubric",
+                        "evaluator": "reviewer",
+                        "rubric": "review",
+                        "runs": 3,
+                        "pass_quorum": 1,
+                    }
+                },
+                "evaluators": {"reviewer": {"type": "command", "command": ["reviewer"]}},
+            }
+        )
+
+    with pytest.raises(ValidationError, match="cannot exceed runs"):
+        Contract.model_validate(
+            {
+                "constraints": {
+                    "review": {
+                        "kind": "rubric",
+                        "evaluator": "reviewer",
+                        "rubric": "review",
+                        "runs": 3,
+                        "pass_quorum": 4,
+                    }
+                },
+                "evaluators": {"reviewer": {"type": "command", "command": ["reviewer"]}},
+            }
+        )
+
+    with pytest.raises(ValidationError, match="string commands require shell"):
+        Contract.model_validate(
+            {
+                "constraints": {"check": {"kind": "artifact", "path": "report"}},
+                "evaluators": {"reviewer": {"type": "command", "command": "reviewer"}},
+            }
+        )
+
+    with pytest.raises(ValidationError, match="at least one pattern"):
+        Contract.model_validate(
+            {"constraints": {"check": {"kind": "artifact", "path": "report", "watch": []}}}
+        )

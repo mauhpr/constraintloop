@@ -6,8 +6,8 @@ import json
 import sys
 from pathlib import Path
 
-STATEMENT_FLOOR = 90.0
-BRANCH_FLOOR = 80.0
+STATEMENT_FLOOR = 95.0
+BRANCH_FLOOR = 90.0
 
 
 def main() -> int:
