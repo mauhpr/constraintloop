@@ -429,7 +429,8 @@ def test_supervisor_lease_renews_without_another_cycle(tmp_path):
     assert not path.exists()
 
 
-def test_lost_supervisor_heartbeat_fails_closed_and_preserves_new_owner(tmp_path):
+@pytest.mark.parametrize("renew_after_loss", [False, True])
+def test_lost_supervisor_heartbeat_fails_closed_and_preserves_new_owner(tmp_path, renew_after_loss):
     with (
         pytest.raises(LoopError, match="renewal failed"),
         loop_lease(
@@ -441,7 +442,8 @@ def test_lost_supervisor_heartbeat_fails_closed_and_preserves_new_owner(tmp_path
         path = lease_path(tmp_path, "review")
         path.write_text(json.dumps({"token": "new-owner", "expires_at": time.time() + 10}))
         time.sleep(0.15)
-        renew()
+        if renew_after_loss:
+            renew()
     assert json.loads(path.read_text())["token"] == "new-owner"
 
 

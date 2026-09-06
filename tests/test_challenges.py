@@ -16,11 +16,19 @@ from constraintloop.hooks import handle_hook
 from constraintloop.loops import (
     LoopError,
     journal_path,
+    loop_input_snapshot,
     run_cycle,
     show_challenge,
     submit_challenge,
 )
-from constraintloop.models import Contract, Enforcement, LoopJournal, LoopState, Phase
+from constraintloop.models import (
+    ChallengeConfig,
+    Contract,
+    Enforcement,
+    LoopJournal,
+    LoopState,
+    Phase,
+)
 from constraintloop.state import load_session
 
 
@@ -116,6 +124,127 @@ def _discover(root: Path, contract: Contract) -> None:
     assert run_cycle(root, contract, "completion").state == LoopState.CHALLENGE
     submit_challenge(root, contract, "completion", _submission(root, contract, "discovery"))
     assert run_cycle(root, contract, "completion").state == LoopState.VERIFY
+
+
+def test_explicit_empty_domain_context_remains_valid() -> None:
+    config = ChallengeConfig(domain_context=[])
+    assert config.domain_context == []
+    assert config.count == 10
+
+
+def test_input_snapshot_restores_saved_goal_and_binds_precomputed_evidence(
+    tmp_path: Path, contract: Contract, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    initial = loop_input_snapshot(tmp_path, contract, "completion")
+    explicit = loop_input_snapshot(tmp_path, contract, "completion", "Check recovery")
+    assert explicit != initial
+    record = ConstraintEngine(tmp_path, contract, goal="Check recovery").run(Phase.STOP)
+
+    def unexpected_evaluation(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("A supplied evidence record must not execute checks twice")
+
+    monkeypatch.setattr(ConstraintEngine, "run", unexpected_evaluation)
+    result = run_cycle(
+        tmp_path,
+        contract,
+        "completion",
+        record=record,
+        goal="Check recovery",
+        record_input_snapshot=explicit,
+    )
+    assert result.state == LoopState.CHALLENGE
+    assert loop_input_snapshot(tmp_path, contract, "completion") == explicit
+    assert show_challenge(tmp_path, contract, "completion")["request"]["input_snapshot"] == explicit
+
+
+@pytest.mark.parametrize("discovery_started", [False, True])
+def test_verification_requires_a_request_and_recorded_discovery(
+    tmp_path: Path, contract: Contract, discovery_started: bool
+) -> None:
+    if not discovery_started:
+        (tmp_path / "status").write_text("fail")
+    run_cycle(tmp_path, contract, "completion")
+    path = journal_path(tmp_path, "completion")
+    before = path.read_bytes()
+    journal = LoopJournal.model_validate_json(before)
+    payload = {
+        "kind": "verification",
+        "request_id": journal.challenge.request_id if journal.challenge else "no-request",
+        "input_snapshot": journal.input_snapshot,
+        "resolutions": [
+            {
+                "challenge_id": "not-yet-recorded",
+                "outcome": "unresolved",
+                "evidence": "Discovery has not been submitted.",
+                "source_refs": ["domain.md"],
+            }
+        ],
+    }
+    expected = "Submit discovery" if discovery_started else "No challenge request exists"
+    with pytest.raises(LoopError, match=expected):
+        submit_challenge(tmp_path, contract, "completion", payload)
+    assert path.read_bytes() == before
+    if not discovery_started:
+        with pytest.raises(LoopError, match="No challenge request exists yet"):
+            show_challenge(tmp_path, contract, "completion")
+
+
+@pytest.mark.parametrize("has_contract", [False, True])
+def test_challenge_show_cli_reports_missing_contract_or_journal(
+    tmp_path: Path, contract: Contract, has_contract: bool
+) -> None:
+    if has_contract:
+        _write_contract(tmp_path, contract)
+    result = CliRunner().invoke(
+        main,
+        ["challenge", "show", "completion", "--project", str(tmp_path)],
+    )
+    assert result.exit_code == 1
+    assert (
+        "No valid challenge journal" in result.output
+        if has_contract
+        else "No ConstraintLoop" in result.output
+    )
+    assert not journal_path(tmp_path, "completion").exists()
+
+
+@pytest.mark.parametrize(
+    "case", ["oversized", "non-object", "invalid-json", "missing-file", "invalid-work"]
+)
+def test_challenge_submit_cli_rejects_bad_inputs_without_changing_journal(
+    tmp_path: Path, contract: Contract, case: str
+) -> None:
+    _write_contract(tmp_path, contract)
+    run_cycle(tmp_path, contract, "completion")
+    path = journal_path(tmp_path, "completion")
+    before = path.read_bytes()
+    source = tmp_path / ".constraintloop/submission.json"
+    source.parent.mkdir(exist_ok=True)
+    inputs = {
+        "oversized": (" " * 1_048_577, "may not exceed 1 MiB"),
+        "non-object": ("[]", "must be a JSON object"),
+        "invalid-json": ("{", "Expecting property name"),
+        "invalid-work": ("{}", "validation errors"),
+    }
+    expected = "No such file"
+    if case != "missing-file":
+        content, expected = inputs[case]
+        source.write_text(content)
+    result = CliRunner().invoke(
+        main,
+        [
+            "challenge",
+            "submit",
+            "completion",
+            "--file",
+            ".constraintloop/submission.json",
+            "--project",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 1
+    assert expected in result.output
+    assert path.read_bytes() == before
 
 
 def test_complete_session_challenge_without_any_evaluator(

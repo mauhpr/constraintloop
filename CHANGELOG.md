@@ -28,6 +28,9 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
   leases during long evaluations and polling waits.
 - Add regression matrices for adapters, phase policy, malformed numbers, digest
   boundaries, lifecycle sequences, and installed-package challenge workflows.
+- Cover every changed executable line, including submission rejection,
+  missing requests, unreadable files, and lost leases. Report malformed YAML
+  by location without raw source excerpts that could disclose credentials.
 - Migration: existing evidence and waivers become stale under the new input
   digest. Re-run checks; review incompatible prerequisite phases and invalid
   numeric baselines. Challenge gates remain opt-in. Re-run hook setup after

@@ -51,6 +51,28 @@ def test_matching_files_digest_and_project_discovery(tmp_path: Path) -> None:
     outside.unlink()
 
 
+def test_unreadable_file_digest_is_stable_and_cannot_alias_readable_error_text(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = tmp_path / "source.txt"
+    source.write_text("read denied")
+    spec = CommandConstraint(kind="command", command=["true"], watch=["source.txt"])
+    readable = constraint_input_digest(tmp_path, "check", spec)
+    original_read = Path.read_bytes
+
+    def denied(path: Path) -> bytes:
+        if path == source:
+            raise PermissionError("read denied")
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", denied)
+    unreadable = constraint_input_digest(tmp_path, "check", spec)
+    assert unreadable == constraint_input_digest(tmp_path, "check", spec)
+    assert unreadable != readable
+    monkeypatch.setattr(Path, "read_bytes", original_read)
+    assert constraint_input_digest(tmp_path, "check", spec) == readable
+
+
 def test_git_change_detection_untracked_rename_and_bounded_diff(tmp_path: Path) -> None:
     _git(tmp_path, "init", "-q")
     _git(tmp_path, "config", "user.email", "test@example.invalid")

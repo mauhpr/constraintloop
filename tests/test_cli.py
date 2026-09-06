@@ -11,6 +11,21 @@ from constraintloop.cli import main
 from constraintloop.config import ContractError, discover_project_root, load_contract
 
 
+def test_yaml_error_without_location_never_exposes_source_excerpt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / "constraintloop.yml").write_text("constraints: {}")
+    marker = "SYNTHETIC_PARSER_SECRET_123456"
+
+    def unreadable_yaml(raw: str):
+        raise yaml.YAMLError(f"excerpt: ...d={marker}")
+
+    monkeypatch.setattr("constraintloop.config.yaml.safe_load", unreadable_yaml)
+    with pytest.raises(ContractError, match="Malformed YAML") as error:
+        load_contract(tmp_path)
+    assert marker not in str(error.value)
+
+
 def test_init_detects_python_tests(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
         "[tool.pytest.ini_options]\ntestpaths=['tests']\n", encoding="utf-8"

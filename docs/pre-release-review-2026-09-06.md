@@ -229,8 +229,8 @@ schema guarantee; both now have documented validation procedures.
 
 ## Post-fix validation
 
-- 337 tests passed locally on macOS / Python 3.12, before the final artifact
-  smoke additions; statement coverage 95.86%, branch coverage 91.47%.
+- 354 tests passed locally on macOS / Python 3.12; statement coverage 96.52%,
+  branch coverage 92.69%. Every changed executable line is covered (559/559).
 - Formatting, lint, strict typing, and schema checks passed.
 - The release PR and publishing workflow provide the final hosted matrix,
   artifact-install, and publication records.

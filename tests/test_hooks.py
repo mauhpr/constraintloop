@@ -103,6 +103,32 @@ def test_pre_tool_protects_local_secrets(tmp_path: Path) -> None:
     assert response["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
+@pytest.mark.parametrize("adapter", ["claude", "codex", "gemini"])
+def test_pre_tool_policy_errors_deny_the_tool_and_redact_feedback(
+    tmp_path: Path, adapter: str
+) -> None:
+    marker = "SYNTHETIC_POLICY_SECRET_123456"
+    (tmp_path / "constraintloop.yml").write_text(f"broken: [password={marker}")
+    response = handle_hook(
+        tmp_path,
+        adapter,
+        "pre-tool",
+        {
+            "tool_name": "edit",
+            "tool_input": {"file_path": "quality/baselines.json"},
+        },
+    )
+    if adapter == "gemini":
+        assert response["decision"] == "deny"
+        reason = response["reason"]
+    else:
+        assert response["hookSpecificOutput"]["permissionDecision"] == "deny"
+        reason = response["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "could not safely evaluate pre-tool" in reason
+    assert "Invalid contract" in reason
+    assert marker not in reason
+
+
 def test_setup_preserves_existing_hooks_and_is_idempotent(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(sys, "argv", ["/usr/local/bin/constraintloop"])
     path = tmp_path / ".claude" / "settings.local.json"

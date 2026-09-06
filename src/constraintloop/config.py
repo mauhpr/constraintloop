@@ -70,6 +70,15 @@ def load_contract(project_root: Path, *, include_local: bool = True) -> tuple[Co
     except ContractError:
         raise
     except (OSError, yaml.YAMLError, ValidationError) as exc:
+        detail = str(exc)
+        if isinstance(exc, yaml.YAMLError):
+            # YAML snippets may truncate credential labels while leaving their
+            # values visible, defeating assignment-based redaction. Report
+            # location only; never retain the parser's raw source excerpt.
+            detail = "Malformed YAML"
+            mark = getattr(exc, "problem_mark", None)
+            if mark is not None:
+                detail += f" at line {mark.line + 1}, column {mark.column + 1}"
         hint = ""
         if isinstance(exc, ValidationError) and any(
             error["type"] == "extra_forbidden" for error in exc.errors()
@@ -79,7 +88,7 @@ def load_contract(project_root: Path, *, include_local: bool = True) -> tuple[Co
                 "Check for typos; if the contract uses features from a newer release, upgrade "
                 "the hook executable and rerun `constraintloop setup --adapter all --project .`."
             )
-        raise ContractError(f"Invalid contract {path}: {exc}{hint}") from exc
+        raise ContractError(f"Invalid contract {path}: {detail}{hint}") from exc
 
 
 def _merge_mappings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
