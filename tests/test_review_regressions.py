@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import time
 
 import pytest
@@ -18,7 +19,13 @@ from constraintloop.hooks import handle_hook
 from constraintloop.loops import LoopError, journal_path, lease_path, loop_lease, run_cycle
 from constraintloop.models import Contract, LoopState, MetricThreshold, Phase, Verdict
 from constraintloop.redaction import redact_value
-from constraintloop.state import create_waiver, load_ratchet_baseline, save_ratchet_baseline
+from constraintloop.state import (
+    _write_json,
+    _write_lock,
+    create_waiver,
+    load_ratchet_baseline,
+    save_ratchet_baseline,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -430,7 +437,19 @@ def test_supervisor_lease_renews_without_another_cycle(tmp_path):
 
 
 @pytest.mark.parametrize("renew_after_loss", [False, True])
-def test_lost_supervisor_heartbeat_fails_closed_and_preserves_new_owner(tmp_path, renew_after_loss):
+def test_lost_supervisor_heartbeat_fails_closed_and_preserves_new_owner(
+    tmp_path, renew_after_loss, monkeypatch
+):
+    heartbeat_exited = threading.Event()
+
+    class ObservedHeartbeat(threading.Thread):
+        def run(self):
+            try:
+                super().run()
+            finally:
+                heartbeat_exited.set()
+
+    monkeypatch.setattr("constraintloop.loops.threading.Thread", ObservedHeartbeat)
     with (
         pytest.raises(LoopError, match="renewal failed"),
         loop_lease(
@@ -440,8 +459,9 @@ def test_lost_supervisor_heartbeat_fails_closed_and_preserves_new_owner(tmp_path
         ) as renew,
     ):
         path = lease_path(tmp_path, "review")
-        path.write_text(json.dumps({"token": "new-owner", "expires_at": time.time() + 10}))
-        time.sleep(0.15)
+        with _write_lock(path):
+            _write_json(path, {"token": "new-owner", "expires_at": time.time() + 10})
+        assert heartbeat_exited.wait(timeout=5), "heartbeat did not observe the lost lease"
         if renew_after_loss:
             renew()
     assert json.loads(path.read_text())["token"] == "new-owner"
