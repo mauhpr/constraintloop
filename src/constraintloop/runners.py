@@ -8,12 +8,14 @@ import operator
 import os
 import re
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 from subprocess import TimeoutExpired
-from typing import Any, cast
+from typing import Any
 
-from constraintloop._process import run_bounded
+from constraintloop._numbers import finite_number
+from constraintloop._process import OutputLimitExceeded, run_bounded
 from constraintloop.models import (
     ArtifactConstraint,
     CommandConstraint,
@@ -25,6 +27,7 @@ from constraintloop.models import (
     RatchetConstraint,
     Verdict,
 )
+from constraintloop.redaction import redact_text
 from constraintloop.state import load_ratchet_baseline, load_ratchet_baseline_digest
 
 _OPS: dict[str, Callable[[float, float], bool]] = {
@@ -365,11 +368,9 @@ def run_artifact_constraint(
                     name: _json_path(report, json_path) for name, json_path in spec.evidence.items()
                 }
             elif spec.format == "junit":
-                import xml.etree.ElementTree as ET
-
                 ET.parse(path)
             verdict, message = Verdict.PASS, f"Artifact is present: {spec.path}"
-        except (OSError, json.JSONDecodeError, ValueError, KeyError, IndexError) as exc:
+        except (OSError, ValueError, KeyError, IndexError, ET.ParseError) as exc:
             verdict, message = Verdict.FAIL, f"Artifact is invalid: {exc}"
     return ConstraintResult(
         constraint_id=constraint_id,
@@ -413,6 +414,8 @@ def _run_command(
         )
     except TimeoutExpired:
         return f"Command timed out after {timeout:.3g}s"
+    except OutputLimitExceeded as exc:
+        return str(exc)
     except (FileNotFoundError, OSError) as exc:
         return f"Command could not start: {exc}"
     return result.returncode, result.stdout or "", result.stderr or ""
@@ -488,11 +491,11 @@ def _parse_metric(
         match = re.search(parser.pattern, raw, re.MULTILINE)
         if not match:
             raise ValueError("regex did not match")
-        return float(match.group(parser.group)), hashlib.sha256(raw.encode()).hexdigest()
+        return finite_number(match.group(parser.group)), hashlib.sha256(raw.encode()).hexdigest()
 
     assert parser.path is not None
     value = _json_path(json.loads(raw), parser.path)
-    return float(cast(Any, value)), hashlib.sha256(raw.encode()).hexdigest()
+    return finite_number(value), hashlib.sha256(raw.encode()).hexdigest()
 
 
 def _json_path(value: object, path: str) -> object:
@@ -507,7 +510,7 @@ def _json_path(value: object, path: str) -> object:
 
 
 def _output_tail(stdout: str, stderr: str, limit: int) -> str:
-    combined = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+    combined = redact_text("\n".join(part for part in (stdout.strip(), stderr.strip()) if part))
     encoded = combined.encode()
     if len(encoded) <= limit:
         return combined

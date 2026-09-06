@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import re
 import subprocess
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
 from constraintloop.models import ConstraintSpec, RatchetConstraint
+from constraintloop.redaction import redact_text as redact_text
 
 _IGNORED_PARTS = {
     ".git",
@@ -33,10 +32,6 @@ _SECRET_NAMES = {
     "secrets.env",
 }
 _SECRET_SUFFIXES = {".key", ".pem", ".p12", ".pfx"}
-_CREDENTIAL_ASSIGNMENT = re.compile(
-    r"(?i)\b(api[_-]?key|access[_-]?token|auth[_-]?token|password|secret)"
-    r"(\s*[:=]\s*[\"']?)([^\s,\"']{8,})"
-)
 
 
 def matching_files(project_root: Path, patterns: Iterable[str]) -> list[Path]:
@@ -64,27 +59,35 @@ def constraint_input_digest(
     *,
     contract_digest: str | None = None,
 ) -> str:
-    digest = hashlib.sha256()
-    digest.update(constraint_id.encode())
-    if contract_digest is not None:
-        digest.update(contract_digest.encode())
-    digest.update(
-        json.dumps(spec.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()
-    )
+    digest = hashlib.sha256(b"constraintloop-input-v2\0")
+
+    def add(value: bytes) -> None:
+        digest.update(len(value).to_bytes(8, "big"))
+        digest.update(value)
+
+    add(constraint_id.encode())
+    add((contract_digest or "").encode())
+    add(json.dumps(spec.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode())
     if isinstance(spec, RatchetConstraint):
         baseline_path = (project_root / spec.baseline_file).resolve()
         try:
             baseline_path.relative_to(project_root.resolve())
-            digest.update(baseline_path.read_bytes())
+            content = baseline_path.read_bytes()
+            add(b"baseline-present")
+            add(content)
         except (OSError, ValueError) as exc:
-            digest.update(f"<missing-baseline:{exc}>".encode())
+            add(b"baseline-unavailable")
+            add(str(exc).encode())
     for path in matching_files(project_root, spec.watch):
         relative = path.relative_to(project_root).as_posix()
-        digest.update(relative.encode())
+        add(relative.encode())
         try:
-            digest.update(path.read_bytes())
+            content = path.read_bytes()
+            add(b"file-present")
+            add(content)
         except OSError as exc:
-            digest.update(f"<unreadable:{exc}>".encode())
+            add(b"file-unavailable")
+            add(str(exc).encode())
     return digest.hexdigest()
 
 
@@ -208,21 +211,6 @@ def is_disclosable_path(relative: str) -> bool:
         name in _SECRET_NAMES
         or (name.startswith(".env.") and name != ".env.example")
         or path.suffix.lower() in _SECRET_SUFFIXES
-    )
-
-
-def redact_text(value: str) -> str:
-    redacted = value
-    for name, secret in os.environ.items():
-        if (
-            secret
-            and len(secret) >= 8
-            and any(marker in name.upper() for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD"))
-        ):
-            redacted = redacted.replace(secret, "[REDACTED]")
-    return _CREDENTIAL_ASSIGNMENT.sub(
-        lambda match: f"{match.group(1)}{match.group(2)}[REDACTED]",
-        redacted,
     )
 
 

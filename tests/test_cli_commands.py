@@ -682,7 +682,7 @@ def test_explain_reports_phase_skips_watch_paths_and_dependency_chains(tmp_path:
                 "kind": "command",
                 "command": ["true"],
                 "watch": ["src/**/*.py"],
-                "phases": ["stop"],
+                "phases": ["stop", "ci"],
             },
             "migration": {
                 "kind": "command",

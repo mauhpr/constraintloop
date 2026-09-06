@@ -11,7 +11,7 @@ import yaml
 from pydantic import ValidationError
 
 from constraintloop import __version__
-from constraintloop.models import Contract
+from constraintloop.models import Contract, Phase
 
 CONFIG_NAMES = ("constraintloop.yml", "constraintloop.yaml")
 LOCAL_CONFIG_NAMES = ("constraintloop.local.yml", "constraintloop.local.yaml")
@@ -70,6 +70,15 @@ def load_contract(project_root: Path, *, include_local: bool = True) -> tuple[Co
     except ContractError:
         raise
     except (OSError, yaml.YAMLError, ValidationError) as exc:
+        detail = str(exc)
+        if isinstance(exc, yaml.YAMLError):
+            # YAML snippets may truncate credential labels while leaving their
+            # values visible, defeating assignment-based redaction. Report
+            # location only; never retain the parser's raw source excerpt.
+            detail = "Malformed YAML"
+            mark = getattr(exc, "problem_mark", None)
+            if mark is not None:
+                detail += f" at line {mark.line + 1}, column {mark.column + 1}"
         hint = ""
         if isinstance(exc, ValidationError) and any(
             error["type"] == "extra_forbidden" for error in exc.errors()
@@ -79,7 +88,7 @@ def load_contract(project_root: Path, *, include_local: bool = True) -> tuple[Co
                 "Check for typos; if the contract uses features from a newer release, upgrade "
                 "the hook executable and rerun `constraintloop setup --adapter all --project .`."
             )
-        raise ContractError(f"Invalid contract {path}: {exc}{hint}") from exc
+        raise ContractError(f"Invalid contract {path}: {detail}{hint}") from exc
 
 
 def _merge_mappings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -92,6 +101,18 @@ def _merge_mappings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, 
         else:
             merged[key] = value
     return merged
+
+
+def load_loop_contract(project_root: Path, loop_name: str) -> tuple[Contract, Path]:
+    """CI loops, like CI runs, use only committed policy, even if an overlay is invalid."""
+    base, path = load_contract(project_root, include_local=False)
+    loop = base.loops.get(loop_name)
+    if loop is not None and loop.phase == Phase.CI:
+        return base, path
+    contract, path = load_contract(project_root)
+    if loop_name in contract.loops and contract.loops[loop_name].phase == Phase.CI:
+        raise ContractError("CI loops must be defined in the committed contract")
+    return contract, path
 
 
 def _ensure_overlay_only_strengthens(base: Contract, merged: Contract, overlay_path: Path) -> None:

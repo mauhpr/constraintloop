@@ -49,7 +49,7 @@ def test_stop_blocks_then_requires_human(tmp_path: Path, monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("active_field", ["stop_hook_active", "stopHookActive"])
-def test_recursive_stop_hook_succeeds_without_loading_contract(
+def test_recursive_stop_hook_fails_closed_without_contract(
     tmp_path: Path, active_field: str
 ) -> None:
     response = handle_hook(
@@ -59,7 +59,7 @@ def test_recursive_stop_hook_succeeds_without_loading_contract(
         {active_field: True},
     )
 
-    assert response == {}
+    assert response["continue"] is False
 
 
 @pytest.mark.parametrize(
@@ -101,6 +101,32 @@ def test_pre_tool_protects_local_secrets(tmp_path: Path) -> None:
         {"tool_input": {"command": "*** Update File: .constraintloop/secrets.env"}},
     )
     assert response["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.parametrize("adapter", ["claude", "codex", "gemini"])
+def test_pre_tool_policy_errors_deny_the_tool_and_redact_feedback(
+    tmp_path: Path, adapter: str
+) -> None:
+    marker = "SYNTHETIC_POLICY_SECRET_123456"
+    (tmp_path / "constraintloop.yml").write_text(f"broken: [password={marker}")
+    response = handle_hook(
+        tmp_path,
+        adapter,
+        "pre-tool",
+        {
+            "tool_name": "edit",
+            "tool_input": {"file_path": "quality/baselines.json"},
+        },
+    )
+    if adapter == "gemini":
+        assert response["decision"] == "deny"
+        reason = response["reason"]
+    else:
+        assert response["hookSpecificOutput"]["permissionDecision"] == "deny"
+        reason = response["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "could not safely evaluate pre-tool" in reason
+    assert "Invalid contract" in reason
+    assert marker not in reason
 
 
 def test_setup_preserves_existing_hooks_and_is_idempotent(tmp_path: Path, monkeypatch) -> None:
@@ -277,7 +303,7 @@ def test_hook_lifecycle_context_and_gemini_responses(tmp_path: Path, monkeypatch
 
 
 def test_missing_contract_blocks_stop_but_contextualizes_other_events(tmp_path: Path) -> None:
-    assert handle_hook(tmp_path, "codex", "stop", {})["decision"] == "block"
+    assert handle_hook(tmp_path, "codex", "stop", {})["continue"] is False
     response = handle_hook(tmp_path, "codex", "session-start", {})
     assert "No ConstraintLoop contract" in response["hookSpecificOutput"]["additionalContext"]
 

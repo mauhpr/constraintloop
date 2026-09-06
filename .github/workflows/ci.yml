@@ -123,3 +123,4 @@ jobs:
       - run: uv venv --seed .sdist-venv
       - run: uv pip install --python .sdist-venv/bin/python dist/*.tar.gz
       - run: .sdist-venv/bin/constraintloop --version
+      - run: .sdist-venv/bin/python scripts/wheel_failure_smoke.py .sdist-venv/bin/constraintloop

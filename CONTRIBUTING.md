@@ -5,7 +5,7 @@ By participating, you agree to follow the
 the contact method documented there.
 
 ConstraintLoop accepts focused changes that strengthen evidence, state,
-budgeting, locks, and stopping. It is not a general agent runtime and v0.1 must
+budgeting, locks, and stopping. It is not a general agent runtime and must
 not launch provider CLIs for repair turns or offer unbounded repair loops.
 Opt-in native CLI evaluators are limited to isolated, tool-disabled reviews.
 
@@ -43,5 +43,5 @@ Releases are prepared through a focused release pull request and published only
 through GitHub Trusted Publishing. See `RELEASE.md`. Contributors and agents
 must not run local package upload commands or add long-lived registry tokens.
 
-The supported v0.1 platforms are macOS and Linux. Windows is not supported
+The supported platforms are macOS and Linux. Windows is not supported
 until hook command generation and clean-wheel tests are implemented there.

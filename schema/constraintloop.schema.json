@@ -137,6 +137,49 @@
       "title": "ArtifactConstraint",
       "type": "object"
     },
+    "ChallengeConfig": {
+      "additionalProperties": false,
+      "description": "Discovery and verification performed by the current coding session.",
+      "properties": {
+        "count": {
+          "default": 10,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Count",
+          "type": "integer"
+        },
+        "domain_context": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Domain Context",
+          "type": "array"
+        },
+        "max_continuations": {
+          "default": 8,
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Continuations",
+          "type": "integer"
+        },
+        "max_rounds": {
+          "default": 2,
+          "maximum": 10,
+          "minimum": 1,
+          "title": "Max Rounds",
+          "type": "integer"
+        },
+        "watch": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Watch",
+          "type": "array"
+        }
+      },
+      "title": "ChallengeConfig",
+      "type": "object"
+    },
     "CommandConstraint": {
       "additionalProperties": false,
       "properties": {
@@ -405,6 +448,17 @@
     "LoopConfig": {
       "additionalProperties": false,
       "properties": {
+        "challenge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChallengeConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "interval_seconds": {
           "exclusiveMinimum": 0,
           "maximum": 86400,

@@ -143,7 +143,7 @@ def test_cycle_cli_exit_codes_and_native_prompts(
     result = CliRunner().invoke(main, ["cycle", "completion", "--json", "--project", str(tmp_path)])
     assert result.exit_code == 10
     assert json.loads(result.output)["state"] == "repair"
-    for adapter in ("codex", "claude"):
+    for adapter in ("codex", "claude", "gemini"):
         prompt = loop_prompt("completion", adapter)
         assert "exactly once" in prompt
         assert "at most one repair" in prompt
@@ -202,7 +202,7 @@ def test_invalid_and_unknown_loop_names_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(LoopError, match="Invalid loop name"):
         journal_path(tmp_path, "../escape")
     with pytest.raises(LoopError, match="Unsupported loop adapter"):
-        loop_prompt("completion", "gemini")
+        loop_prompt("completion", "unsupported")
 
 
 def test_supervisor_emits_a_nonwaiting_transition_and_releases_lease(

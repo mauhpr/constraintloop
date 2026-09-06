@@ -26,10 +26,16 @@ The central distinction is deliberate:
 ConstraintLoop supports Claude Code, Codex, and Gemini CLI through their hook
 lifecycles. CI is the final authority: it ignores local caches and human waivers.
 
-Bounded convergence loops are included in the v0.1 release scope. The design
+Bounded convergence loops are implemented. The design
 keeps ConstraintLoop in control of evidence, budgets, and stopping while native
 Claude or Codex loops perform at most one requested repair per transition. See
 [docs/convergence-loops.md](docs/convergence-loops.md).
+
+Completion loops can also require the current coding session to generate and
+investigate N domain-grounded failure scenarios before stopping. Claude Code,
+Codex, and Gemini CLI use their existing session context and tools; this
+challenge gate requires no separate model evaluator. See
+[session challenge gates](docs/convergence-loops.md#session-challenge-gates).
 
 ## At a glance
 
@@ -308,8 +314,11 @@ reactivate ConstraintLoop; setup clears the tombstone.
 - `constraintloop cycle NAME --json` — execute one journaled loop transition.
 - `constraintloop supervise NAME` — poll pending evidence under a recoverable
   single-writer lease and exit whenever repair or termination is required.
-- `constraintloop loop-prompt NAME --adapter claude|codex` — print the bounded
-  native-agent repair protocol without launching an agent.
+- `constraintloop loop-prompt NAME --adapter claude|codex|gemini` — print the bounded
+  native-agent repair and challenge protocol without launching an agent.
+- `constraintloop challenge show NAME` — inspect saved scenarios and the submission schema.
+- `constraintloop challenge submit NAME --file PATH` — record session-authored
+  discovery or verification for the current request and input snapshot.
 - `constraintloop status` — inspect evidence without executing commands.
 - `constraintloop explain --phase change|stop|push|ci` — show why each constraint
   runs or is skipped, including matched and changed watch paths, cache state,
@@ -332,7 +341,7 @@ reactivate ConstraintLoop; setup clears the tombstone.
 - `constraintloop author` — write a review-only QA/test-authoring proposal.
 
 `enhance` and `author` intentionally do not install dependencies or modify the
-active contract in v0.1. Their proposal files make the future self-improvement
+active contract. Their proposal files make the future self-improvement
 path auditable.
 
 ## Documentation

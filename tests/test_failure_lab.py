@@ -41,7 +41,8 @@ def test_dependency_failure_prevents_downstream_execution(tmp_path: Path) -> Non
         }
     )
     record = ConstraintEngine(tmp_path, contract, use_cache=False).run(Phase.STOP)
-    assert [result.verdict for result in record.results] == [Verdict.FAIL, Verdict.ERROR]
+    assert [result.verdict for result in record.results] == [Verdict.FAIL, Verdict.FAIL]
+    assert record.results[1].blocked_by == ["first"]
     assert "Dependencies did not pass" in record.results[1].message
     assert not marker.exists()
 

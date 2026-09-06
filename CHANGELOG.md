@@ -5,6 +5,37 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-06
+
+- Add optional session challenge gates for Claude Code, Codex, and Gemini CLI:
+  generate configurable domain-grounded scenarios, record immutable plans,
+  verify outcomes against fresh deterministic evidence, and repair defects
+  without launching a model evaluator.
+- Add challenge show/submit commands, challenge/verify cycle states, Gemini
+  loop prompts, and persisted continuation budgets for all three adapters.
+- Preserve task goals through generated continuation prompts and stop Gemini
+  sessions on exhausted budgets instead of requesting another retry.
+- Fix all ten pre-release findings: frame content hashes unambiguously; bound
+  ordinary recursive Stop hooks and advisory continuations; fail closed on
+  malformed evidence and unexpected hook errors; reject push/CI waivers in
+  every engine entry point; report repairable dependency failures by root
+  cause; renew budgets for completed tasks; refresh pending hook evidence on
+  the shared cycle interval; reject non-finite metrics, thresholds, and
+  baselines; redact retained evidence; and deny observed agent baseline
+  weakening and direct baseline edits.
+- Reject disabled or phase-incompatible prerequisites, keep CI loops free of
+  local overlays, bound subprocess collection to 8 MiB, and renew supervisor
+  leases during long evaluations and polling waits.
+- Add regression matrices for adapters, phase policy, malformed numbers, digest
+  boundaries, lifecycle sequences, and installed-package challenge workflows.
+- Cover every changed executable line, including submission rejection,
+  missing requests, unreadable files, and lost leases. Report malformed YAML
+  by location without raw source excerpts that could disclose credentials.
+- Migration: existing evidence and waivers become stale under the new input
+  digest. Re-run checks; review incompatible prerequisite phases and invalid
+  numeric baselines. Challenge gates remain opt-in. Re-run hook setup after
+  upgrading if hooks use a pinned ephemeral executable.
+
 ## [0.4.1] - 2026-09-04
 
 - Raise enforced statement coverage from 90% to 95% and branch coverage from

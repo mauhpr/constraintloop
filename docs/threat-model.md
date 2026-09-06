@@ -37,6 +37,15 @@ quality policy.
 - Agent hook writes to the contract and waiver commands observed by hooks are
   denied.
 - CI ignores the local evidence cache and all waivers.
+- Push and CI both reject local waivers at the engine boundary. CI loops also
+  ignore local overlays. Recursive Stop events recheck evidence and terminate
+  explicitly for a human when their persisted budgets are exhausted.
+- Structured evidence, parser errors, retained command tails, and hook feedback
+  receive best-effort credential redaction before retention or display. See
+  [completion policy](completion-policy.md#evidence-and-redaction) for limits.
+- Subprocess collection is bounded to 8 MiB, with process-group cleanup on
+  overflow and timeout. Observed baseline weakening and direct baseline writes
+  are treated as quality-policy mutations.
 
 ## Residual risks
 

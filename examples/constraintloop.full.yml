@@ -115,3 +115,9 @@ loops:
     on_failure: repair
     on_pending: wait
     on_budget_exhausted: human_required
+    challenge:
+      count: 10
+      max_rounds: 2
+      max_continuations: 8
+      watch: ["src/**/*.py", "tests/**/*.py", "docs/**/*.md", README.md]
+      domain_context: [README.md, "docs/**/*.md"]
