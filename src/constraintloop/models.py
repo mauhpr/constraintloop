@@ -7,7 +7,17 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+
+from constraintloop._numbers import finite_number
+from constraintloop.redaction import redact_text, redact_value
 
 
 class StrictModel(BaseModel):
@@ -34,6 +44,10 @@ class Phase(StrEnum):
     STOP = "stop"
     PUSH = "push"
     CI = "ci"
+
+    @property
+    def allows_local_waivers(self) -> bool:
+        return self not in {Phase.PUSH, Phase.CI}
 
 
 class FailureCategory(StrEnum):
@@ -130,7 +144,12 @@ class MetricParser(StrictModel):
 
 class MetricThreshold(StrictModel):
     operator: Literal["gt", "gte", "lt", "lte", "eq"]
-    value: float
+    value: float = Field(allow_inf_nan=False)
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def validate_value(cls, value: object) -> float:
+        return finite_number(value)
 
 
 class MetricConstraint(BaseConstraint):
@@ -309,6 +328,23 @@ EvaluatorConfig = Annotated[
 ]
 
 
+class ChallengeConfig(StrictModel):
+    """Discovery and verification performed by the current coding session."""
+
+    count: int = Field(default=10, ge=1, le=100)
+    max_rounds: int = Field(default=2, ge=1, le=10)
+    max_continuations: int = Field(default=8, ge=1, le=100)
+    watch: list[str] = Field(default_factory=lambda: ["**/*"])
+    domain_context: list[str] = Field(default_factory=list)
+
+    @field_validator("watch", "domain_context")
+    @classmethod
+    def validate_patterns(cls, patterns: list[str], info: Any) -> list[str]:
+        if info.field_name == "domain_context" and not patterns:
+            return patterns
+        return _relative_patterns(patterns, info.field_name)
+
+
 class LoopConfig(StrictModel):
     phase: Phase
     interval_seconds: float = Field(gt=0, le=86_400)
@@ -319,6 +355,13 @@ class LoopConfig(StrictModel):
     on_failure: Literal["repair"] = "repair"
     on_pending: Literal["wait"] = "wait"
     on_budget_exhausted: Literal["human_required"] = "human_required"
+    challenge: ChallengeConfig | None = None
+
+    @model_validator(mode="after")
+    def validate_challenge_phase(self) -> LoopConfig:
+        if self.challenge is not None and self.phase != Phase.STOP:
+            raise ValueError("session challenge gates require phase: stop")
+        return self
 
 
 class Contract(StrictModel):
@@ -348,6 +391,15 @@ class Contract(StrictModel):
                 raise ValueError(
                     f"{constraint_id} depends on unknown constraints: {sorted(unknown)}"
                 )
+            for dependency in spec.needs:
+                prerequisite = self.constraints[dependency]
+                if spec.enabled and (
+                    not prerequisite.enabled or not set(spec.phases).issubset(prerequisite.phases)
+                ):
+                    raise ValueError(
+                        f"{constraint_id} requires {dependency} to be enabled "
+                        "in every dependent phase"
+                    )
             if isinstance(spec, RubricConstraint) and spec.evaluator not in self.evaluators:
                 raise ValueError(f"{constraint_id} references unknown evaluator {spec.evaluator!r}")
 
@@ -421,12 +473,23 @@ class ConstraintResult(StrictModel):
     baseline: float | None = None
     delta: float | None = None
     details: dict[str, Any] = Field(default_factory=dict)
+    blocked_by: list[str] = Field(default_factory=list)
     evidence_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     failure_category: FailureCategory | None = None
     output_tail: str | None = None
     findings: list[Finding] = Field(default_factory=list)
     evaluator_calls: list[EvaluatorCallMetadata] = Field(default_factory=list)
     cached: bool = False
+
+    @model_validator(mode="after")
+    def scrub_evidence(self) -> ConstraintResult:
+        self.message = redact_text(self.message)
+        self.output_tail = redact_text(self.output_tail) if self.output_tail else None
+        self.details = redact_value(self.details)
+        self.findings = [
+            Finding.model_validate(redact_value(finding.model_dump())) for finding in self.findings
+        ]
+        return self
 
     @property
     def blocks(self) -> bool:
@@ -451,6 +514,67 @@ class EvidenceRecord(StrictModel):
         return not any(result.blocks for result in self.results)
 
 
+ChallengeText = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=8000)
+]
+
+
+class Challenge(StrictModel):
+    id: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$")
+    perspective: ChallengeText
+    assumption: ChallengeText
+    scenario: ChallengeText
+    expected_behavior: ChallengeText
+    verification_plan: ChallengeText
+    source_refs: list[str] = Field(min_length=1, max_length=50)
+
+
+class ChallengeResolution(StrictModel):
+    challenge_id: str
+    outcome: Literal["verified", "defect", "rejected", "unresolved"]
+    evidence: ChallengeText
+    constraint_ids: list[str] = Field(default_factory=list, max_length=50)
+    source_refs: list[str] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def validate_verified_evidence(self) -> ChallengeResolution:
+        if self.outcome == "verified" and not self.constraint_ids:
+            raise ValueError("verified challenges require deterministic constraint_ids")
+        return self
+
+
+class ChallengeSubmission(StrictModel):
+    request_id: str
+    input_snapshot: str
+
+
+class DiscoverySubmission(ChallengeSubmission):
+    kind: Literal["discovery"]
+    domain_summary: ChallengeText
+    domain_sources: list[str] = Field(min_length=1, max_length=50)
+    challenges: list[Challenge] = Field(min_length=1, max_length=100)
+
+
+class VerificationSubmission(ChallengeSubmission):
+    kind: Literal["verification"]
+    resolutions: list[ChallengeResolution] = Field(min_length=1, max_length=1000)
+
+
+class RecordedResolution(ChallengeResolution):
+    input_snapshot: str
+
+
+class ChallengeLedger(StrictModel):
+    request_id: str
+    input_snapshot: str
+    round: int = Field(default=1, ge=1)
+    discovery_pending: bool = True
+    followup_needed: bool = False
+    domain_briefs: list[dict[str, Any]] = Field(default_factory=list)
+    challenges: list[Challenge] = Field(default_factory=list)
+    resolutions: dict[str, RecordedResolution] = Field(default_factory=dict)
+
+
 class LoopState(StrEnum):
     PASSED = "passed"
     REPAIR = "repair"
@@ -458,6 +582,8 @@ class LoopState(StrEnum):
     HUMAN_REQUIRED = "human_required"
     BUDGET_EXHAUSTED = "budget_exhausted"
     ERROR = "error"
+    CHALLENGE = "challenge"
+    VERIFY = "verify"
 
 
 class LoopJournal(StrictModel):
@@ -473,6 +599,10 @@ class LoopJournal(StrictModel):
     prior_snapshot: str | None = None
     input_snapshot: str | None = None
     last_result: dict[str, Any] | None = None
+    last_evidence: EvidenceRecord | None = None
+    goal: str | None = None
+    challenge: ChallengeLedger | None = None
+    challenge_continuations: int = Field(default=0, ge=0)
 
 
 class CycleResult(StrictModel):
@@ -485,6 +615,7 @@ class CycleResult(StrictModel):
     next_action: str
     wake_after_seconds: float = Field(ge=0)
     blocking_constraints: list[str] = Field(default_factory=list)
+    blocking_challenges: list[str] = Field(default_factory=list)
 
 
 class EvaluationBundle(StrictModel):

@@ -17,6 +17,7 @@ from constraintloop.config import (
     ContractError,
     contract_digest,
     load_contract,
+    load_loop_contract,
 )
 from constraintloop.diagnostics import deep_diagnostics
 from constraintloop.digest import changed_files, constraint_input_digest, matching_files
@@ -24,7 +25,15 @@ from constraintloop.engine import ConstraintEngine, format_summary
 from constraintloop.environment import load_project_environment, project_environment_path
 from constraintloop.hooks import handle_hook
 from constraintloop.hygiene import ensure_local_files_ignored, tracked_state_files
-from constraintloop.loops import CYCLE_EXIT_CODES, LoopError, loop_prompt, run_cycle, supervise
+from constraintloop.loops import (
+    CYCLE_EXIT_CODES,
+    LoopError,
+    loop_prompt,
+    run_cycle,
+    show_challenge,
+    submit_challenge,
+    supervise,
+)
 from constraintloop.models import (
     CommandEvaluatorConfig,
     Enforcement,
@@ -159,7 +168,7 @@ def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -
         root,
         contract,
         use_cache=not no_cache and phase != Phase.CI,
-        allow_waivers=phase not in {Phase.PUSH, Phase.CI},
+        allow_waivers=phase.allows_local_waivers,
         progress=None if json_output else lambda message: click.echo(message, err=True),
     ).run(phase)
     click.echo(
@@ -197,7 +206,7 @@ def cycle_command(loop_name: str, project: Path, json_output: bool) -> None:
     """Execute exactly one convergence-loop transition."""
     root = _root(project)
     try:
-        contract, _ = load_contract(root)
+        contract, _ = load_loop_contract(root, loop_name)
         result = run_cycle(root, contract, loop_name)
     except (ContractError, LoopError) as exc:
         if json_output:
@@ -229,7 +238,7 @@ def supervise_command(loop_name: str, project: Path) -> None:
     """Poll a loop under a single-writer lease and emit JSON Lines."""
     root = _root(project)
     try:
-        contract, _ = load_contract(root)
+        contract, _ = load_loop_contract(root, loop_name)
         final = None
         for result in supervise(root, contract, loop_name):
             final = result
@@ -254,7 +263,7 @@ def supervise_command(loop_name: str, project: Path) -> None:
 
 @main.command("loop-prompt")
 @click.argument("loop_name")
-@click.option("--adapter", type=click.Choice(["claude", "codex"]), required=True)
+@click.option("--adapter", type=click.Choice(list(ADAPTERS)), required=True)
 @click.option("--project", type=click.Path(path_type=Path), default=Path("."))
 def loop_prompt_command(loop_name: str, adapter: str, project: Path) -> None:
     """Print a provider-neutral bounded-loop prompt for a native agent."""
@@ -266,6 +275,48 @@ def loop_prompt_command(loop_name: str, adapter: str, project: Path) -> None:
     if loop_name not in contract.loops:
         raise click.ClickException(f"Unknown loop {loop_name!r}")
     click.echo(loop_prompt(loop_name, adapter))
+
+
+@main.group("challenge")
+def challenge_commands() -> None:
+    """Read and submit challenge work from the active coding session."""
+
+
+@challenge_commands.command("show")
+@click.argument("loop_name")
+@click.option("--project", type=click.Path(path_type=Path), default=Path("."))
+def challenge_show_command(loop_name: str, project: Path) -> None:
+    """Print the saved request, scenarios, and JSON submission schema."""
+    root = _root(project)
+    try:
+        contract, _ = load_contract(root)
+        request = show_challenge(root, contract, loop_name)
+    except (ContractError, LoopError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(json.dumps(request, indent=2))
+
+
+@challenge_commands.command("submit")
+@click.argument("loop_name")
+@click.option("--file", "submission_file", type=click.Path(path_type=Path), required=True)
+@click.option("--project", type=click.Path(path_type=Path), default=Path("."))
+def challenge_submit_command(loop_name: str, submission_file: Path, project: Path) -> None:
+    """Validate and record discovery or verification without invoking a model."""
+    root = _root(project)
+    try:
+        contract, _ = load_contract(root)
+        source = submission_file if submission_file.is_absolute() else root / submission_file
+        with source.open("rb") as handle:
+            raw = handle.read(1_048_577)
+        if len(raw) > 1_048_576:
+            raise ValueError("Challenge submissions may not exceed 1 MiB")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("Challenge submission must be a JSON object")
+        submit_challenge(root, contract, loop_name, payload)
+    except (ContractError, LoopError, OSError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"Challenge work recorded. Run `constraintloop cycle {loop_name} --json` next.")
 
 
 @main.command("status")

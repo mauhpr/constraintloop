@@ -11,7 +11,7 @@ import yaml
 from pydantic import ValidationError
 
 from constraintloop import __version__
-from constraintloop.models import Contract
+from constraintloop.models import Contract, Phase
 
 CONFIG_NAMES = ("constraintloop.yml", "constraintloop.yaml")
 LOCAL_CONFIG_NAMES = ("constraintloop.local.yml", "constraintloop.local.yaml")
@@ -92,6 +92,18 @@ def _merge_mappings(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, 
         else:
             merged[key] = value
     return merged
+
+
+def load_loop_contract(project_root: Path, loop_name: str) -> tuple[Contract, Path]:
+    """CI loops, like CI runs, use only committed policy, even if an overlay is invalid."""
+    base, path = load_contract(project_root, include_local=False)
+    loop = base.loops.get(loop_name)
+    if loop is not None and loop.phase == Phase.CI:
+        return base, path
+    contract, path = load_contract(project_root)
+    if loop_name in contract.loops and contract.loops[loop_name].phase == Phase.CI:
+        raise ContractError("CI loops must be defined in the committed contract")
+    return contract, path
 
 
 def _ensure_overlay_only_strengthens(base: Contract, merged: Contract, overlay_path: Path) -> None:

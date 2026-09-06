@@ -13,6 +13,7 @@ from fcntl import LOCK_EX, LOCK_UN, flock
 from pathlib import Path
 from typing import Any
 
+from constraintloop._numbers import finite_number
 from constraintloop.digest import project_key
 from constraintloop.models import ConstraintResult
 
@@ -130,9 +131,10 @@ def load_ratchet_baseline(
     entries = raw.get("ratchets") if isinstance(raw, dict) else None
     item = entries.get(constraint_id) if isinstance(entries, dict) else None
     value = item.get("value") if isinstance(item, dict) else item
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return float(value)
-    return None
+    try:
+        return finite_number(value)
+    except ValueError:
+        return None
 
 
 def load_ratchet_baseline_digest(
@@ -157,6 +159,7 @@ def save_ratchet_baseline(
     value: float,
     evidence_sha256: str | None = None,
 ) -> Path:
+    value = finite_number(value)
     path = (project_root / baseline_file).resolve()
     path.relative_to(project_root.resolve())
     with _write_lock(path):
@@ -191,6 +194,7 @@ def result_evidence_digest(result: ConstraintResult) -> str:
         "baseline": result.baseline,
         "delta": result.delta,
         "details": result.details,
+        "blocked_by": result.blocked_by,
         "evidence_sha256": result.evidence_sha256,
         "failure_category": result.failure_category,
         "output_tail": result.output_tail,

@@ -41,6 +41,10 @@ Every constraint supports `description`, `enforcement` (`required` or
 `advisory`), `phases` (`change`, `stop`, `push`, `ci`), `watch` globs, dependency IDs
 in `needs`, `timeout_seconds`, and `enabled`. Dependencies must exist and the
 graph must be acyclic.
+Every enabled dependent must have its prerequisites enabled in all of its
+phases. A failed prerequisite blocks its dependents without running them;
+cycles report the root cause for repair, even if that prerequisite is advisory.
+Genuine evaluation errors still require human inspection.
 Identifiers may contain letters, numbers, dots, underscores, and hyphens.
 `watch` and `include` values must be nonempty project-relative POSIX globs.
 
@@ -75,11 +79,18 @@ retries require an explicit `total_timeout_seconds` greater than the per-attempt
 timeout. This keeps the total bound visible while leaving enough budget for a
 second attempt. Command and command-evaluator processes run from the selected
 project root by default, and ConstraintLoop prepends that root to `PYTHONPATH`.
+Collection of combined stdout/stderr has a separate hard 8 MiB limit per
+process. Exceeding it terminates the process group and produces an error;
+truncated output is never treated as a complete metric or evaluator response.
+`evidence_output_limit` controls the smaller, redacted tail retained afterward.
 
 Metric constraints add `parser` and `threshold`. A parser has type `json` or
 `regex`, reads `stdout`, `stderr`, or a project-contained `file`, and selects a
 dotted JSON `path` or regex `pattern` and `group`. Threshold operators are
 `gt`, `gte`, `lt`, `lte`, and `eq`.
+Measurements, thresholds, and baselines must be finite numbers. Finite numeric
+strings remain supported; booleans, nulls, containers, NaN, and infinities are
+rejected. `--allow-regression` never overrides numeric validation.
 
 Ratchet constraints use `kind: ratchet` with the same command and parser fields
 as a metric. Their default `mode: must_not_increase` compares the current value
@@ -94,7 +105,11 @@ constraintloop baseline update --all
 Updates that would weaken an existing baseline are rejected. Use
 `--allow-regression` only for a reviewed, intentional reset, then commit the
 baseline artifact with the contract. `baseline_file` can select another
-project-relative JSON file. Each baseline entry records both the numeric value
+project-relative JSON file. Observed agent commands using `--allow-regression`
+and direct edits to baseline files are denied by pre-tool hooks; ask the human
+to perform intentional policy changes outside the hooked session. Strengthening
+through the ordinary baseline-update command remains allowed. Each baseline
+entry records both the numeric value
 and the SHA-256 digest of the parsed evidence source, replacing the separate
 count-and-hash bookkeeping commonly used for migration inventories.
 
@@ -142,3 +157,16 @@ Hook responses use `hook_output_limit` to retain failing test names and the firs
 useful traceback line without injecting the complete test log. The unabridged
 retained tail remains available with `constraintloop debug CONSTRAINT`.
 See `docs/convergence-loops.md` for the cycle protocol and stable exit codes.
+
+Stop-phase loops optionally accept `challenge` for discovery and verification
+performed in the active Claude Code, Codex, or Gemini CLI session. Defaults are
+`count: 10` (1–100), `max_rounds: 2` (1–10), `max_continuations: 8` (1–100),
+`watch: ["**/*"]`, and `domain_context: []`. Context and watch entries are
+project-relative globs. The existing loop duration and repair budgets also
+apply; challenge work uses no model evaluator configuration. Omit `challenge`
+to retain the ordinary completion behavior. See
+[session challenge gates](convergence-loops.md#session-challenge-gates) for
+submission examples, evidence requirements, and adapter behavior.
+
+See [completion policy](completion-policy.md) for the cross-entry-point matrix,
+task lifecycle, redaction policy, and upgrade notes.

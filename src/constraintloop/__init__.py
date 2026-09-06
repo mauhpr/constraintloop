@@ -1,7 +1,7 @@
 """ConstraintLoop package metadata.
 
-The v0.4 supported interfaces are the CLI and documented versioned protocols.
+The v0.5 supported interfaces are the CLI and documented versioned protocols.
 Python submodules are internal and may change during initial development.
 """
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"

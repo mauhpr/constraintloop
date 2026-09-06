@@ -40,6 +40,7 @@ from constraintloop.models import (
     RubricConstraint,
     Verdict,
 )
+from constraintloop.redaction import redact_value as _redact_value
 from constraintloop.runners import (
     run_artifact_constraint,
     run_command_constraint,
@@ -138,6 +139,7 @@ class ConstraintEngine:
                         enforcement=spec.enforcement,
                         input_digest=digest,
                         message=f"Dependencies are pending: {', '.join(pending_dependencies)}",
+                        blocked_by=pending_dependencies,
                     )
                 elif unavailable:
                     dependency_categories = {
@@ -148,10 +150,19 @@ class ConstraintEngine:
                     result = ConstraintResult(
                         constraint_id=constraint_id,
                         kind=spec.kind,
-                        verdict=Verdict.ERROR,
+                        verdict=(
+                            Verdict.ERROR
+                            if any(
+                                dependency not in results
+                                or results[dependency].verdict in {Verdict.ERROR, Verdict.UNCERTAIN}
+                                for dependency in unavailable
+                            )
+                            else Verdict.FAIL
+                        ),
                         enforcement=spec.enforcement,
                         input_digest=digest,
                         message=f"Dependencies did not pass: {', '.join(unavailable)}",
+                        blocked_by=unavailable,
                         failure_category=(
                             FailureCategory.ENVIRONMENT
                             if FailureCategory.ENVIRONMENT in dependency_categories
@@ -220,7 +231,7 @@ class ConstraintEngine:
             else None
         )
         cache_digest = _rubric_cache_digest(digest, bundle) if bundle is not None else digest
-        if self.use_cache:
+        if self.use_cache and phase != Phase.CI:
             cached = load_cached_result(self.project_root, constraint_id, cache_digest)
             if (
                 cached is not None
@@ -229,7 +240,7 @@ class ConstraintEngine:
             ):
                 if (
                     self.allow_waivers
-                    and phase != Phase.CI
+                    and phase.allows_local_waivers
                     and not isinstance(spec, RubricConstraint)
                 ):
                     reason = waiver_reason(self.project_root, cached, self.contract_digest)
@@ -284,7 +295,8 @@ class ConstraintEngine:
             f"DONE {constraint_id}: {result.verdict.value} ({result.duration_ms / 1000:.1f}s)"
         )
 
-        if self.use_cache:
+        result = ConstraintResult.model_validate(result.model_dump())
+        if self.use_cache and phase != Phase.CI:
             save_cached_result(self.project_root, result, cache_digest=cache_digest)
         return result
 
@@ -495,14 +507,22 @@ def blocking_results(record: EvidenceRecord) -> list[ConstraintResult]:
     return [result for result in record.results if result.blocks]
 
 
-def _redact_value(value: object) -> object:
-    if isinstance(value, str):
-        return redact_text(value)
-    if isinstance(value, list):
-        return [_redact_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _redact_value(item) for key, item in value.items()}
-    return value
+def blocking_causes(record: EvidenceRecord) -> list[ConstraintResult]:
+    """Explain required failures using their root causes, including advisory prerequisites."""
+    by_id = {result.constraint_id: result for result in record.results}
+    roots: set[str] = set()
+
+    def visit(result: ConstraintResult) -> None:
+        dependencies = result.blocked_by
+        if dependencies and all(dependency in by_id for dependency in dependencies):
+            for dependency in dependencies:
+                visit(by_id[dependency])
+        else:
+            roots.add(result.constraint_id)
+
+    for result in blocking_results(record):
+        visit(result)
+    return [result for result in record.results if result.constraint_id in roots]
 
 
 def _rubric_cache_digest(base_digest: str, bundle: EvaluationBundle) -> str:
