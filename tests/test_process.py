@@ -62,7 +62,7 @@ def test_output_overflow_fails_instead_of_parsing_truncated_evidence(stream):
         )
 
 
-@pytest.mark.parametrize("input_text", ["", "é" * 100000])
+@pytest.mark.parametrize("input_text", ["", "é" * 100000], ids=["empty", "large-utf8"])
 def test_bounded_process_streams_input_and_decodes_utf8(input_text):
     result = process_module.run_bounded(
         [
