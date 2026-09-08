@@ -79,9 +79,22 @@ call.
 
 ### Why does a result say `cached`?
 
-The contract definition and every matched `watch` input have the same digest as
-the prior evidence. Use `--no-cache` for a deliberate local rerun. CI always
+The contract definition, checkout identity (project, worktree, branch, HEAD), and
+every matched `watch` input have the same digest as the prior evidence.
+Use `--no-cache` for a deliberate local rerun. CI always
 reruns without local evidence.
+
+### Can concurrent sessions use separate worktrees?
+
+Yes, including detached worktrees and nested monorepo projects. Each worktree
+and branch has its own evidence, goals, waivers, acknowledgments, loop journals,
+and budgets. A shared `CONSTRAINTLOOP_CACHE_DIR` still separates resolved project
+paths. `constraintloop doctor` and `constraintloop explain --json` report the
+active worktree, branch, HEAD, and state directory.
+
+Use a dedicated worktree for each concurrent line of work. Multiple sessions
+in one directory still share its checked-out files and external services.
+See [worktree setup and container isolation](worktrees.md).
 
 ### Why did an unrelated edit invalidate a result?
 

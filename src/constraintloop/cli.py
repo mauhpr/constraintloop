@@ -13,6 +13,7 @@ from typing import Any, cast
 import click
 
 from constraintloop import __version__
+from constraintloop.checkout import checkout_context
 from constraintloop.config import (
     ContractError,
     contract_digest,
@@ -58,6 +59,7 @@ from constraintloop.setup_hooks import (
     uninstall_pre_push_hook,
 )
 from constraintloop.state import (
+    cache_root,
     create_advisory_acknowledgment,
     create_waiver,
     load_cached_result,
@@ -164,13 +166,16 @@ def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -
         contract, _ = load_contract(root, include_local=phase != Phase.CI)
     except ContractError as exc:
         raise click.ClickException(str(exc)) from exc
-    record = ConstraintEngine(
-        root,
-        contract,
-        use_cache=not no_cache and phase != Phase.CI,
-        allow_waivers=phase.allows_local_waivers,
-        progress=None if json_output else lambda message: click.echo(message, err=True),
-    ).run(phase)
+    try:
+        record = ConstraintEngine(
+            root,
+            contract,
+            use_cache=not no_cache and phase != Phase.CI,
+            allow_waivers=phase.allows_local_waivers,
+            progress=None if json_output else lambda message: click.echo(message, err=True),
+        ).run(phase)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     click.echo(
         record.model_dump_json(indent=2)
         if json_output
@@ -208,7 +213,7 @@ def cycle_command(loop_name: str, project: Path, json_output: bool) -> None:
     try:
         contract, _ = load_loop_contract(root, loop_name)
         result = run_cycle(root, contract, loop_name)
-    except (ContractError, LoopError) as exc:
+    except (ValueError, LoopError) as exc:
         if json_output:
             click.echo(
                 json.dumps(
@@ -243,7 +248,7 @@ def supervise_command(loop_name: str, project: Path) -> None:
         for result in supervise(root, contract, loop_name):
             final = result
             click.echo(result.model_dump_json())
-    except (ContractError, LoopError) as exc:
+    except (ValueError, LoopError) as exc:
         click.echo(
             json.dumps(
                 {
@@ -408,10 +413,18 @@ def explain_command(phase: str, project: Path, json_output: bool) -> None:
         )
     if json_output:
         click.echo(
-            json.dumps({"phase": selected_phase.value, "constraints": explanations}, indent=2)
+            json.dumps(
+                {
+                    "phase": selected_phase.value,
+                    "scope": _checkout_scope(root),
+                    "constraints": explanations,
+                },
+                indent=2,
+            )
         )
         return
     click.echo(f"ConstraintLoop explain: phase={selected_phase.value}")
+    _print_checkout_scope(root)
     for item in explanations:
         click.echo(
             f"- {str(item['decision']).upper()} {item['constraint_id']} ({item['kind']}): "
@@ -437,6 +450,28 @@ def _dependency_chains(contract: Any, constraint_id: str) -> list[str]:
         return [chain + [node] for dependency in dependencies for chain in paths(dependency)]
 
     return [" -> ".join(chain) for chain in paths(constraint_id) if len(chain) > 1]
+
+
+def _checkout_scope(root: Path) -> dict[str, str | None]:
+    checkout = checkout_context(root)
+    return {
+        "project_root": checkout.project_root,
+        "worktree_root": checkout.worktree_root,
+        "git_dir": checkout.git_dir,
+        "branch": checkout.branch,
+        "head": checkout.head,
+        "state_directory": str(cache_root(root)),
+    }
+
+
+def _print_checkout_scope(root: Path) -> None:
+    scope = _checkout_scope(root)
+    click.echo(f"project: {scope['project_root']}")
+    click.echo(f"worktree: {scope['worktree_root'] or 'not a Git checkout'}")
+    if scope["git_dir"] is not None:
+        click.echo(f"branch: {scope['branch'] or '(detached HEAD)'}")
+        click.echo(f"HEAD: {scope['head'] or '(unborn)'}")
+    click.echo(f"state directory: {scope['state_directory']}")
 
 
 @main.group("baseline")
@@ -527,6 +562,7 @@ def doctor_command(project: Path, deep: bool) -> None:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"OK {path}")
     click.echo(f"contract digest: {contract_digest(contract)}")
+    _print_checkout_scope(root)
     click.echo(f"constraints: {len(contract.constraints)}; evaluators: {len(contract.evaluators)}")
     try:
         project_environment = load_project_environment(root)

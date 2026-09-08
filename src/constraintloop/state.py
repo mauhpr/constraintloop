@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from constraintloop._numbers import finite_number
+from constraintloop.checkout import checkout_context
 from constraintloop.digest import project_key
 from constraintloop.models import ConstraintResult
 
@@ -21,8 +22,11 @@ from constraintloop.models import ConstraintResult
 def cache_root(project_root: Path) -> Path:
     override = os.environ.get("CONSTRAINTLOOP_CACHE_DIR")
     if override:
-        return Path(override).expanduser() / project_key(project_root)
-    return project_root.resolve() / ".constraintloop" / "state"
+        base = Path(override).expanduser().resolve() / project_key(project_root)
+    else:
+        base = project_root.resolve() / ".constraintloop" / "state"
+    key = checkout_context(project_root).state_key()
+    return base / "checkouts" / key if key is not None else base
 
 
 def _project_dir(project_root: Path) -> Path:

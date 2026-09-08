@@ -1,6 +1,6 @@
 # Release readiness
 
-This is the current release checklist, updated September 6, 2026 for v0.5.0.
+This is the current release checklist, updated September 8, 2026 for v0.5.1.
 The authoritative publication procedure is [RELEASE.md](../RELEASE.md).
 Historical v0.1 milestones are complete; they are not current release gates.
 
@@ -21,6 +21,16 @@ Historical v0.1 milestones are complete; they are not current release gates.
   the merged main commit; GitHub OIDC publishes that version with attestations.
 - Verify publication and a fresh public-index install afterward. Never replace
   an existing version, publish locally, or add long-lived registry tokens.
+
+## v0.5.1 worktree isolation
+
+Worktree regressions cover linked and detached checkouts, shared cache directories,
+branch switches at the same commit, HEAD changes with unchanged watched files,
+session goals and retry budgets, local exceptions, loop journals and leases,
+checkout changes during evaluation and supervision, nested-project hooks,
+legacy-state isolation, and challenge-only loops. See [worktrees](worktrees.md)
+for setup and migration instructions. Container resource isolation remains the
+consuming project's responsibility.
 
 ## v0.5 review closure
 

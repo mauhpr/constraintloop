@@ -21,6 +21,7 @@ from constraintloop.challenges import (
     challenge_input_digest,
     challenge_request,
 )
+from constraintloop.checkout import checkout_context, ensure_checkout_unchanged
 from constraintloop.config import contract_digest
 from constraintloop.digest import constraint_input_digest
 from constraintloop.engine import ConstraintEngine, blocking_causes
@@ -97,6 +98,7 @@ def _input_snapshot(
     project_root: Path, contract: Contract, config: LoopConfig, goal: str | None = None
 ) -> str:
     identity = contract_digest(contract)
+    checkout = checkout_context(project_root)
     inputs = [
         (
             constraint_id,
@@ -105,12 +107,14 @@ def _input_snapshot(
                 constraint_id,
                 spec,
                 contract_digest=identity,
+                checkout=checkout,
             ),
         )
         for constraint_id, spec in contract.constraints.items()
         if spec.enabled and config.phase in spec.phases
     ]
     inputs.append(("goal", goal or ""))
+    inputs.append(("checkout", checkout.snapshot()))
     if config.challenge is not None:
         inputs.extend(
             [
@@ -139,6 +143,7 @@ def run_cycle(
     config = contract.loops[loop_name]
     current_time = time.time() if now is None else now
     identity = contract_digest(contract)
+    checkout = checkout_context(project_root)
     path = journal_path(project_root, loop_name)
     with _write_lock(path):
         try:
@@ -193,6 +198,7 @@ def run_cycle(
             )
             journal.observation = result.observation
             journal.last_result = result.model_dump(mode="json")
+            ensure_checkout_unchanged(project_root, checkout)
             journal.input_snapshot = input_snapshot
             _write_json(path, journal.model_dump(mode="json"))
             if on_record is not None and journal.last_evidence is not None:
@@ -210,6 +216,7 @@ def run_cycle(
                 refresh_pending=True,
             ).run(config.phase)
 
+        ensure_checkout_unchanged(project_root, checkout)
         if on_record is not None:
             on_record(record)
 
@@ -329,6 +336,7 @@ def run_cycle(
         journal.input_snapshot = input_snapshot
         journal.last_result = result.model_dump(mode="json")
         journal.last_evidence = record
+        ensure_checkout_unchanged(project_root, checkout)
         _write_json(path, journal.model_dump(mode="json"))
         return result
 
@@ -475,6 +483,7 @@ def supervise(
         raise LoopError(f"Unknown loop {loop_name!r}")
     config = contract.loops[loop_name]
     ttl = max(60.0, config.interval_seconds * 3)
+    checkout = checkout_context(project_root)
     cancelled = False
 
     def cancel(_signum: int, _frame: Any) -> None:
@@ -488,6 +497,7 @@ def supervise(
         with loop_lease(project_root, loop_name, ttl_seconds=ttl) as renew:
             previous_state: LoopState | None = None
             while not cancelled:
+                ensure_checkout_unchanged(project_root, checkout)
                 renew()
                 result = run_cycle(project_root, contract, loop_name)
                 renew()

@@ -144,7 +144,8 @@ single-shot, tool-disabled reviews and cannot perform a repair transition.
 
 The supervisor:
 
-- use a single-writer lease under `.constraintloop/state/loops/`;
+- use a single-writer lease in the active state directory's `loops/` subdirectory
+  (`doctor` reports the directory; Git checkouts separate state by worktree and branch);
 - recover leases after a bounded TTL;
 - handle cancellation signals;
 - never count polling observations as repair attempts;
@@ -152,6 +153,9 @@ The supervisor:
 - journal transitions atomically;
 - redact secrets and cap retained output;
 - stop at every attempt and duration budget.
+
+Supervision stops if the Git checkout changes while it is running. Start a new
+supervisor in the intended worktree so it reloads that checkout's contract.
 
 ## Native integration
 

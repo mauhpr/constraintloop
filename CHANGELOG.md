@@ -5,6 +5,17 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-08
+
+- Isolate local evidence, sessions, waivers, acknowledgments, journals, and leases
+  by resolved project/worktree and branch (commit for detached HEAD). Bind input
+  digests to checkout identity and HEAD, keeping branch retry budgets across commits.
+- Reject checkout changes during gate evaluation and supervision. Report project,
+  worktree, branch, HEAD, and state directory in `doctor` and `explain`.
+- Migration: Git projects start fresh state under `.constraintloop/state/checkouts/`;
+  prior unscoped state is retained but never imported into a branch. All prior input
+  digests become stale. Run checks again and start a fresh challenge cycle if used.
+
 ## [0.5.0] - 2026-09-06
 
 - Add optional session challenge gates for Claude Code, Codex, and Gemini CLI:

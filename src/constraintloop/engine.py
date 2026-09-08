@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
+from constraintloop.checkout import checkout_context, ensure_checkout_unchanged
 from constraintloop.config import contract_digest
 from constraintloop.digest import (
     changed_files,
@@ -79,6 +80,7 @@ class ConstraintEngine:
     def run(self, phase: Phase) -> EvidenceRecord:
         """Run applicable constraints in dependency order."""
         started_at = time.time()
+        self.checkout = checkout_context(self.project_root)
         results: dict[str, ConstraintResult] = {}
         pending = {
             constraint_id
@@ -130,6 +132,7 @@ class ConstraintEngine:
                     constraint_id,
                     spec,
                     contract_digest=self.contract_digest,
+                    checkout=self.checkout,
                 )
                 if pending_dependencies:
                     result = ConstraintResult(
@@ -203,6 +206,7 @@ class ConstraintEngine:
                     )
             pending.difference_update(ready)
 
+        ensure_checkout_unchanged(self.project_root, self.checkout)
         record = EvidenceRecord(
             run_id=str(uuid.uuid4()),
             project_root=str(self.project_root),
@@ -296,6 +300,7 @@ class ConstraintEngine:
         )
 
         result = ConstraintResult.model_validate(result.model_dump())
+        ensure_checkout_unchanged(self.project_root, self.checkout)
         if self.use_cache and phase != Phase.CI:
             save_cached_result(self.project_root, result, cache_digest=cache_digest)
         return result
