@@ -271,10 +271,13 @@ Commands run from their configured project-contained `cwd`, with the selected
 project root prepended to `PYTHONPATH`.
 
 Evidence is keyed by the constraint definition and the bytes of every file
-matched by `watch`. A source change therefore makes old evidence and waivers
-stale without a mutable invalidation list. Local state lives under the
+matched by `watch`, plus the resolved project/worktree, branch, and HEAD. A source
+change or new HEAD therefore makes old evidence and waivers stale without a
+mutable invalidation list. Local state lives under the
 gitignored `.constraintloop/state` directory; set `CONSTRAINTLOOP_CACHE_DIR` to
-override it.
+override it. Git projects use a separate state subdirectory per branch in each
+worktree. Use one worktree per concurrent line of work; `doctor` and `explain`
+show the active scope. See [worktrees and concurrent sessions](docs/worktrees.md).
 
 For stronger machine-local gates, create a gitignored
 `constraintloop.local.yml`. ConstraintLoop recursively merges mappings over the

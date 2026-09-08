@@ -8,6 +8,7 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 
+from constraintloop.checkout import Checkout, checkout_context
 from constraintloop.models import ConstraintSpec, RatchetConstraint
 from constraintloop.redaction import redact_text as redact_text
 
@@ -58,8 +59,9 @@ def constraint_input_digest(
     spec: ConstraintSpec,
     *,
     contract_digest: str | None = None,
+    checkout: Checkout | None = None,
 ) -> str:
-    digest = hashlib.sha256(b"constraintloop-input-v2\0")
+    digest = hashlib.sha256(b"constraintloop-input-v3\0")
 
     def add(value: bytes) -> None:
         digest.update(len(value).to_bytes(8, "big"))
@@ -67,6 +69,7 @@ def constraint_input_digest(
 
     add(constraint_id.encode())
     add((contract_digest or "").encode())
+    add((checkout or checkout_context(project_root)).snapshot().encode())
     add(json.dumps(spec.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode())
     if isinstance(spec, RatchetConstraint):
         baseline_path = (project_root / spec.baseline_file).resolve()
