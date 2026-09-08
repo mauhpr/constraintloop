@@ -262,6 +262,16 @@ def test_rubric_cache_is_invalidated_by_prerequisite_evidence(tmp_path: Path, mo
     assert unchanged.results[1].cached
     check = load_latest_result(tmp_path, "check")
     assert check is not None
+    check.attempts[0].started_at = "2026-01-01T00:00:00+00:00"
+    check.attempts[0].duration_ms += 1
+    save_cached_result(tmp_path, check)
+    assert ConstraintEngine(tmp_path, contract).run(Phase.STOP).results[1].cached
+
+    check.attempts[0].output_tail = "different attempt evidence"
+    save_cached_result(tmp_path, check)
+    changed_attempt = ConstraintEngine(tmp_path, contract).run(Phase.STOP)
+    assert not changed_attempt.results[1].cached
+    assert changed_attempt.results[1].output_tail == "2"
     save_cached_result(
         tmp_path,
         check.model_copy(update={"output_tail": "different prerequisite evidence"}),
@@ -270,7 +280,7 @@ def test_rubric_cache_is_invalidated_by_prerequisite_evidence(tmp_path: Path, mo
     changed = ConstraintEngine(tmp_path, contract).run(Phase.STOP)
 
     assert first.results[1].output_tail == "1"
-    assert changed.results[1].output_tail == "2"
+    assert changed.results[1].output_tail == "3"
     assert not changed.results[1].cached
 
 

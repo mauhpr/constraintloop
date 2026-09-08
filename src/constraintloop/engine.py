@@ -60,15 +60,19 @@ class ConstraintEngine:
         contract: Contract,
         *,
         use_cache: bool = True,
+        refresh_cache: bool = False,
         allow_waivers: bool = True,
         goal: str | None = None,
         agent_adapter: str | None = None,
         refresh_pending: bool = False,
         progress: Callable[[str], None] | None = None,
     ):
+        if refresh_cache and not use_cache:
+            raise ValueError("refresh_cache requires use_cache=True")
         self.project_root = project_root.resolve()
         self.contract = contract
         self.use_cache = use_cache
+        self.refresh_cache = refresh_cache
         self.allow_waivers = allow_waivers
         self.goal = goal
         self.agent_adapter = agent_adapter
@@ -235,7 +239,7 @@ class ConstraintEngine:
             else None
         )
         cache_digest = _rubric_cache_digest(digest, bundle) if bundle is not None else digest
-        if self.use_cache and phase != Phase.CI:
+        if self.use_cache and not self.refresh_cache and phase != Phase.CI:
             cached = load_cached_result(self.project_root, constraint_id, cache_digest)
             if (
                 cached is not None
@@ -255,8 +259,11 @@ class ConstraintEngine:
                                 "message": f"Locally waived by a human: {reason}",
                             }
                         )
-                self._emit(f"REUSED {constraint_id}: {cached.verdict.value}")
-                return cached
+                # Environment repairs need not change watched files. Keep the old
+                # error available for inspection, but obtain fresh evidence.
+                if cached.failure_category != FailureCategory.ENVIRONMENT:
+                    self._emit(f"REUSED {constraint_id}: {cached.verdict.value}")
+                    return cached
 
         self._emit(f"RUN {constraint_id} ({spec.kind})")
         with self._heartbeat(constraint_id):
@@ -535,6 +542,9 @@ def _rubric_cache_digest(base_digest: str, bundle: EvaluationBundle) -> str:
     for result in payload["deterministic_results"]:
         for volatile in ("cached", "duration_ms", "evaluator_calls"):
             result.pop(volatile, None)
+        for attempt in result.get("attempts", []):
+            for volatile in ("started_at", "duration_ms"):
+                attempt.pop(volatile, None)
     digest = hashlib.sha256()
     digest.update(base_digest.encode())
     digest.update(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode())

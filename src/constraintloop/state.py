@@ -206,6 +206,11 @@ def result_evidence_digest(result: ConstraintResult) -> str:
             finding.model_dump(mode="json", exclude_none=True) for finding in result.findings
         ],
     }
+    if result.attempts:
+        payload["attempts"] = [
+            attempt.model_dump(mode="json", exclude={"started_at", "duration_ms"})
+            for attempt in result.attempts
+        ]
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()

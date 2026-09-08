@@ -5,6 +5,20 @@ Versioning, with the usual initial-development flexibility for `0.y.z`.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-08
+
+- Rerun unwaived cached environment errors so restored tools can recover without
+  changing watched files. Add `run --refresh` to replace cached evidence;
+  `--no-cache` and CI continue to bypass both cache reads and writes.
+- Preserve each command, metric, and ratchet attempt's redacted output, exit code,
+  execution error, start time, and duration, including partial timeout output.
+- Make retry examples distinguish infrastructure failures from assertion failures
+  and document the existing default `retry.exit_codes: [1]`.
+- Migration: upgrade the runtime used by your hooks and run `constraintloop run
+  --refresh` to replace prior evidence. Existing cache entries remain readable;
+  attempt history is available for newly executed checks. Set `retry.exit_codes`
+  explicitly to distinguish infrastructure failures from assertion failures.
+
 ## [0.5.1] - 2026-09-08
 
 - Isolate local evidence, sessions, waivers, acknowledgments, journals, and leases

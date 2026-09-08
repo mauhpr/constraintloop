@@ -4,8 +4,8 @@
 
 | Entry point | Local overlays | Local waivers | Pending refresh | Task completion |
 | --- | --- | --- | --- | --- |
-| `run --phase change/stop` | Strengthening only | Deterministic gates only | Use `--no-cache` for a fresh observation | Constraint report only |
-| `run --phase push` | Strengthening only | Never | Use `--no-cache` | Constraint report only |
+| `run --phase change/stop` | Strengthening only | Deterministic gates only | Use `--refresh` to save a fresh observation | Constraint report only |
+| `run --phase push` | Strengthening only | Never | Use `--refresh` | Constraint report only |
 | `ci` / `run --phase ci` | Never | Never | Always uncached | Independent CI evidence |
 | `cycle` / `supervise` | Except CI phase | Except push/CI | Refresh after loop interval | Persisted bounded transition; includes configured challenge work |
 | Stop / AfterAgent hooks | Strengthening only | Deterministic gates only | Shared cycle interval, or refresh each event without a loop | Required evidence, configured challenges, and advisory dispositions |

@@ -81,8 +81,11 @@ call.
 
 The contract definition, checkout identity (project, worktree, branch, HEAD), and
 every matched `watch` input have the same digest as the prior evidence.
-Use `--no-cache` for a deliberate local rerun. CI always
-reruns without local evidence.
+Unwaived environment errors are rerun automatically, since restoring a tool or
+service need not change watched files. Use `constraintloop run --refresh` to
+rerun all applicable checks and replace cached evidence. `--no-cache` reruns
+without reading or writing that cache; it cannot be combined with `--refresh`.
+CI always reruns without reading or writing local evidence.
 
 ### Can concurrent sessions use separate worktrees?
 

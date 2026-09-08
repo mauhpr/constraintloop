@@ -59,7 +59,7 @@ retry policy:
 ```yaml
 retry:
   max_attempts: 3
-  exit_codes: [1, 125]
+  exit_codes: [125]  # A wrapper-defined infrastructure failure code.
   retry_timeouts: false
   retry_start_errors: true
   delay_seconds: 2
@@ -68,6 +68,10 @@ retry:
 
 No retries occur when `retry` is absent. A configured policy retries only the
 listed exit codes and, when enabled, timeouts or process startup failures.
+For compatibility, omitting `exit_codes` from a retry policy still defaults to
+`[1]`. Set it explicitly: `exit_codes: []` retries no completed command failures,
+while a wrapper can reserve a distinct exit code for retryable infrastructure
+failures. Do not retry assertion failures; exit code 1 commonly includes them.
 Every attempt is capped by the constraint's normal timeout, which defaults to
 300 seconds and is always finite. On POSIX, a timeout terminates the entire
 spawned process group, including descendants that inherited the command's output
@@ -83,6 +87,14 @@ Collection of combined stdout/stderr has a separate hard 8 MiB limit per
 process. Exceeding it terminates the process group and produces an error;
 truncated output is never treated as a complete metric or evaluator response.
 `evidence_output_limit` controls the smaller, redacted tail retained afterward.
+Command, metric, and ratchet results retain an ordered `attempts` list in JSON
+and cached evidence, also shown by `constraintloop debug ID`.
+Each attempt includes its number, UTC start time, duration,
+exit code (null if the command did not complete), redacted output tail, and any
+execution error. The output limit applies separately to each attempt (at most
+10); timeouts and output-limit errors retain the output collected before
+termination. Top-level output and exit code continue to describe the final
+execution; earlier attempts are never fed into metric parsing.
 
 Metric constraints add `parser` and `threshold`. A parser has type `json` or
 `regex`, reads `stdout`, `stderr`, or a project-contained `file`, and selects a

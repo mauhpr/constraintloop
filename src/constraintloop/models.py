@@ -460,6 +460,21 @@ class EvaluatorCallMetadata(StrictModel):
     duration_ms: float = Field(ge=0)
 
 
+class CommandAttempt(StrictModel):
+    attempt: int = Field(ge=1)
+    started_at: str
+    duration_ms: float = Field(ge=0)
+    exit_code: int | None = None
+    output_tail: str | None = None
+    error: str | None = None
+
+    @model_validator(mode="after")
+    def scrub_evidence(self) -> CommandAttempt:
+        self.output_tail = redact_text(self.output_tail) if self.output_tail else None
+        self.error = redact_text(self.error) if self.error else None
+        return self
+
+
 class ConstraintResult(StrictModel):
     constraint_id: str
     kind: str
@@ -477,6 +492,7 @@ class ConstraintResult(StrictModel):
     evidence_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     failure_category: FailureCategory | None = None
     output_tail: str | None = None
+    attempts: list[CommandAttempt] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     evaluator_calls: list[EvaluatorCallMetadata] = Field(default_factory=list)
     cached: bool = False
@@ -486,6 +502,9 @@ class ConstraintResult(StrictModel):
         self.message = redact_text(self.message)
         self.output_tail = redact_text(self.output_tail) if self.output_tail else None
         self.details = redact_value(self.details)
+        self.attempts = [
+            CommandAttempt.model_validate(attempt.model_dump()) for attempt in self.attempts
+        ]
         self.findings = [
             Finding.model_validate(redact_value(finding.model_dump())) for finding in self.findings
         ]

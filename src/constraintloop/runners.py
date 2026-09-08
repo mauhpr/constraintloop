@@ -10,6 +10,8 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from subprocess import TimeoutExpired
 from typing import Any
@@ -18,6 +20,7 @@ from constraintloop._numbers import finite_number
 from constraintloop._process import OutputLimitExceeded, run_bounded
 from constraintloop.models import (
     ArtifactConstraint,
+    CommandAttempt,
     CommandConstraint,
     CommandRetryPolicy,
     ConstraintResult,
@@ -39,6 +42,14 @@ _OPS: dict[str, Callable[[float, float], bool]] = {
 }
 
 
+@dataclass(frozen=True)
+class _CommandExecution:
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    error: str | None = None
+
+
 def run_command_constraint(
     project_root: Path,
     constraint_id: str,
@@ -58,13 +69,23 @@ def run_command_constraint(
         spec.timeout_seconds,
         spec.retry,
         progress,
+        output_limit,
     )
     duration = (time.monotonic() - started) * 1000
-    if isinstance(execution, str):
+    output = _output_tail(execution.stdout, execution.stderr, output_limit)
+    if execution.error is not None:
         return _error_result(
-            constraint_id, spec.kind, spec.enforcement, input_digest, execution, duration
+            constraint_id,
+            spec.kind,
+            spec.enforcement,
+            input_digest,
+            execution.error,
+            duration,
+            output,
+            attempts=attempts,
         )
-    returncode, stdout, stderr = execution
+    returncode = execution.exit_code
+    assert returncode is not None
     if returncode in spec.pending_codes:
         return ConstraintResult(
             constraint_id=constraint_id,
@@ -75,11 +96,11 @@ def run_command_constraint(
             message=f"Command is pending (exit code {returncode})",
             duration_ms=duration,
             exit_code=returncode,
-            output_tail=_output_tail(stdout, stderr, output_limit) or None,
+            output_tail=output or None,
+            attempts=attempts,
         )
     passed = returncode in spec.success_codes
-    output = _output_tail(stdout, stderr, output_limit)
-    attempt_suffix = f" after {attempts} attempts" if attempts > 1 else ""
+    attempt_suffix = f" after {len(attempts)} attempts" if len(attempts) > 1 else ""
     return ConstraintResult(
         constraint_id=constraint_id,
         kind=spec.kind,
@@ -94,6 +115,7 @@ def run_command_constraint(
         duration_ms=duration,
         exit_code=returncode,
         output_tail=output or None,
+        attempts=attempts,
         failure_category=None if passed else FailureCategory.CONSTRAINT,
     )
 
@@ -108,7 +130,7 @@ def run_metric_constraint(
     progress: Callable[[str], None] | None = None,
 ) -> ConstraintResult:
     started = time.monotonic()
-    execution, _ = _run_with_retries(
+    execution, attempts = _run_with_retries(
         project_root,
         constraint_id,
         spec.command,
@@ -117,14 +139,23 @@ def run_metric_constraint(
         spec.timeout_seconds,
         spec.retry,
         progress,
+        output_limit,
     )
     duration = (time.monotonic() - started) * 1000
-    if isinstance(execution, str):
+    output = _output_tail(execution.stdout, execution.stderr, output_limit)
+    if execution.error is not None:
         return _error_result(
-            constraint_id, spec.kind, spec.enforcement, input_digest, execution, duration
+            constraint_id,
+            spec.kind,
+            spec.enforcement,
+            input_digest,
+            execution.error,
+            duration,
+            output,
+            attempts=attempts,
         )
-    returncode, stdout, stderr = execution
-    output = _output_tail(stdout, stderr, output_limit)
+    returncode = execution.exit_code
+    assert returncode is not None
     if returncode in spec.pending_codes:
         return ConstraintResult(
             constraint_id=constraint_id,
@@ -136,6 +167,7 @@ def run_metric_constraint(
             duration_ms=duration,
             exit_code=returncode,
             output_tail=output or None,
+            attempts=attempts,
         )
     if returncode not in spec.success_codes:
         return ConstraintResult(
@@ -148,10 +180,13 @@ def run_metric_constraint(
             duration_ms=duration,
             exit_code=returncode,
             output_tail=output or None,
+            attempts=attempts,
             failure_category=FailureCategory.CONSTRAINT,
         )
     try:
-        value, evidence_sha256 = _parse_metric(project_root / spec.cwd, spec, stdout, stderr)
+        value, evidence_sha256 = _parse_metric(
+            project_root / spec.cwd, spec, execution.stdout, execution.stderr
+        )
     except (ValueError, OSError, json.JSONDecodeError, re.error, KeyError, IndexError) as exc:
         return _error_result(
             constraint_id,
@@ -161,6 +196,7 @@ def run_metric_constraint(
             f"Could not parse metric: {exc}",
             duration,
             output,
+            attempts=attempts,
         )
     passed = _OPS[spec.threshold.operator](value, spec.threshold.value)
     return ConstraintResult(
@@ -190,6 +226,7 @@ def run_metric_constraint(
         },
         evidence_sha256=evidence_sha256,
         output_tail=output or None,
+        attempts=attempts,
         failure_category=None if passed else FailureCategory.CONSTRAINT,
     )
 
@@ -205,7 +242,7 @@ def measure_ratchet_constraint(
 ) -> ConstraintResult:
     """Measure a ratchet without comparing or updating its committed baseline."""
     started = time.monotonic()
-    execution, _ = _run_with_retries(
+    execution, attempts = _run_with_retries(
         project_root,
         constraint_id,
         spec.command,
@@ -214,14 +251,23 @@ def measure_ratchet_constraint(
         spec.timeout_seconds,
         spec.retry,
         progress,
+        output_limit,
     )
     duration = (time.monotonic() - started) * 1000
-    if isinstance(execution, str):
+    output = _output_tail(execution.stdout, execution.stderr, output_limit)
+    if execution.error is not None:
         return _error_result(
-            constraint_id, spec.kind, spec.enforcement, input_digest, execution, duration
+            constraint_id,
+            spec.kind,
+            spec.enforcement,
+            input_digest,
+            execution.error,
+            duration,
+            output,
+            attempts=attempts,
         )
-    returncode, stdout, stderr = execution
-    output = _output_tail(stdout, stderr, output_limit)
+    returncode = execution.exit_code
+    assert returncode is not None
     if returncode in spec.pending_codes:
         return ConstraintResult(
             constraint_id=constraint_id,
@@ -233,6 +279,7 @@ def measure_ratchet_constraint(
             duration_ms=duration,
             exit_code=returncode,
             output_tail=output or None,
+            attempts=attempts,
         )
     if returncode not in spec.success_codes:
         return ConstraintResult(
@@ -245,10 +292,13 @@ def measure_ratchet_constraint(
             duration_ms=duration,
             exit_code=returncode,
             output_tail=output or None,
+            attempts=attempts,
             failure_category=FailureCategory.CONSTRAINT,
         )
     try:
-        value, evidence_sha256 = _parse_metric(project_root / spec.cwd, spec, stdout, stderr)
+        value, evidence_sha256 = _parse_metric(
+            project_root / spec.cwd, spec, execution.stdout, execution.stderr
+        )
     except (ValueError, OSError, json.JSONDecodeError, re.error, KeyError, IndexError) as exc:
         return _error_result(
             constraint_id,
@@ -258,6 +308,7 @@ def measure_ratchet_constraint(
             f"Could not parse ratchet metric: {exc}",
             duration,
             output,
+            attempts=attempts,
         )
     return ConstraintResult(
         constraint_id=constraint_id,
@@ -272,6 +323,7 @@ def measure_ratchet_constraint(
         details={"value": value, "evidence_sha256": evidence_sha256},
         evidence_sha256=evidence_sha256,
         output_tail=output or None,
+        attempts=attempts,
     )
 
 
@@ -391,14 +443,14 @@ def _run_command(
     shell: bool,
     cwd: str,
     timeout: float,
-) -> tuple[int, str, str] | str:
+) -> _CommandExecution:
     working_dir = (project_root / cwd).resolve()
     try:
         working_dir.relative_to(project_root.resolve())
     except ValueError:
-        return f"Command cwd escapes the project root: {cwd}"
+        return _CommandExecution(error=f"Command cwd escapes the project root: {cwd}")
     if not working_dir.is_dir():
-        return f"Command cwd does not exist: {cwd}"
+        return _CommandExecution(error=f"Command cwd does not exist: {cwd}")
     try:
         environment = os.environ.copy()
         existing_pythonpath = environment.get("PYTHONPATH")
@@ -412,13 +464,23 @@ def _run_command(
             timeout=timeout,
             env=environment,
         )
-    except TimeoutExpired:
-        return f"Command timed out after {timeout:.3g}s"
+    except TimeoutExpired as exc:
+        return _CommandExecution(
+            error=f"Command timed out after {timeout:.3g}s",
+            stdout=_decode_output(exc.output),
+            stderr=_decode_output(exc.stderr),
+        )
     except OutputLimitExceeded as exc:
-        return str(exc)
+        return _CommandExecution(
+            error=str(exc), stdout=_decode_output(exc.output), stderr=_decode_output(exc.stderr)
+        )
     except (FileNotFoundError, OSError) as exc:
-        return f"Command could not start: {exc}"
-    return result.returncode, result.stdout or "", result.stderr or ""
+        return _CommandExecution(error=f"Command could not start: {exc}")
+    return _CommandExecution(result.returncode, result.stdout or "", result.stderr or "")
+
+
+def _decode_output(output: bytes | str | None) -> str:
+    return output.decode("utf-8", errors="replace") if isinstance(output, bytes) else output or ""
 
 
 def _run_with_retries(
@@ -430,40 +492,58 @@ def _run_with_retries(
     timeout: float,
     policy: CommandRetryPolicy | None,
     progress: Callable[[str], None] | None,
-) -> tuple[tuple[int, str, str] | str, int]:
+    output_limit: int,
+) -> tuple[_CommandExecution, list[CommandAttempt]]:
     max_attempts = policy.max_attempts if policy is not None else 1
     total_timeout = (
         policy.total_timeout_seconds
         if policy is not None and policy.total_timeout_seconds is not None
         else timeout
     )
-    execution: tuple[int, str, str] | str = "Command did not run"
+    attempts: list[CommandAttempt] = []
     started = time.monotonic()
     for attempt in range(1, max_attempts + 1):
         remaining = total_timeout - (time.monotonic() - started)
         if remaining <= 0:
-            return f"Command timed out after {total_timeout:g}s across retry attempts", attempt
+            return _CommandExecution(
+                error=f"Command timed out after {total_timeout:g}s across retry attempts"
+            ), attempts
+        started_at = datetime.now(UTC).isoformat()
+        attempt_started = time.monotonic()
         execution = _run_command(project_root, command, shell, cwd, min(timeout, remaining))
+        duration_ms = (time.monotonic() - attempt_started) * 1000
+        attempts.append(
+            CommandAttempt(
+                attempt=attempt,
+                started_at=started_at,
+                duration_ms=duration_ms,
+                exit_code=execution.exit_code,
+                output_tail=_output_tail(execution.stdout, execution.stderr, output_limit) or None,
+                error=execution.error,
+            )
+        )
         if policy is None or attempt == max_attempts or not _is_retryable(execution, policy):
-            return execution, attempt
+            return execution, attempts
         if progress is not None:
             progress(f"RETRY {constraint_id}: attempt {attempt + 1}/{max_attempts}")
         if policy.delay_seconds:
             remaining = total_timeout - (time.monotonic() - started)
             if remaining <= 0:
-                return f"Command timed out after {total_timeout:g}s across retry attempts", attempt
+                return _CommandExecution(
+                    error=f"Command timed out after {total_timeout:g}s across retry attempts"
+                ), attempts
             time.sleep(min(policy.delay_seconds, remaining))
-    return execution, max_attempts
+    raise AssertionError("Retry loop must return within its attempt budget")
 
 
-def _is_retryable(execution: tuple[int, str, str] | str, policy: CommandRetryPolicy) -> bool:
-    if isinstance(execution, str):
-        if execution.startswith("Command timed out"):
+def _is_retryable(execution: _CommandExecution, policy: CommandRetryPolicy) -> bool:
+    if execution.error is not None:
+        if execution.error.startswith("Command timed out"):
             return bool(policy.retry_timeouts)
-        if execution.startswith("Command could not start"):
+        if execution.error.startswith("Command could not start"):
             return bool(policy.retry_start_errors)
         return False
-    return execution[0] in policy.exit_codes
+    return execution.exit_code in policy.exit_codes
 
 
 def _parse_metric(
@@ -525,6 +605,8 @@ def _error_result(
     message: str,
     duration: float,
     output: str | None = None,
+    *,
+    attempts: list[CommandAttempt] | None = None,
 ) -> ConstraintResult:
     return ConstraintResult(
         constraint_id=constraint_id,
@@ -536,4 +618,5 @@ def _error_result(
         duration_ms=duration,
         output_tail=output or None,
         failure_category=FailureCategory.ENVIRONMENT,
+        attempts=attempts or [],
     )

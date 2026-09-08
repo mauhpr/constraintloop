@@ -134,7 +134,8 @@ constraints:
     watch: ["src/**/*.py", "tests/**/*.py", pyproject.toml]
     retry:
       max_attempts: 3
-      exit_codes: [1]
+      exit_codes: []  # Do not retry assertion failures; retry process startup only.
+      retry_start_errors: true
       delay_seconds: 2
 
   integration_tests:

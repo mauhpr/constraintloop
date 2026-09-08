@@ -54,12 +54,14 @@ def test_timeout_cleanup_uses_process_methods_off_posix(monkeypatch) -> None:
 
 @pytest.mark.parametrize("stream", ["stdout", "stderr"])
 def test_output_overflow_fails_instead_of_parsing_truncated_evidence(stream):
-    with pytest.raises(process_module.OutputLimitExceeded, match="4096 bytes"):
+    with pytest.raises(process_module.OutputLimitExceeded, match="4096 bytes") as caught:
         process_module.run_bounded(
             [sys.executable, "-c", f"import sys; sys.{stream}.write('x' * 1000000)"],
             timeout=5,
             output_limit=4096,
         )
+    assert len(caught.value.output) + len(caught.value.stderr) == 4096
+    assert (caught.value.output if stream == "stdout" else caught.value.stderr) == b"x" * 4096
 
 
 @pytest.mark.parametrize("input_text", ["", "é" * 100000], ids=["empty", "large-utf8"])

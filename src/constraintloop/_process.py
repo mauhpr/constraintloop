@@ -15,6 +15,9 @@ from pathlib import Path
 class OutputLimitExceeded(OSError):
     """Output exceeded the collection bound; incomplete evidence must not be parsed."""
 
+    output: bytes = b""
+    stderr: bytes = b""
+
 
 def run_bounded(
     command: Sequence[str] | str,
@@ -79,11 +82,15 @@ def run_bounded(
                         continue
                     total += len(chunk)
                     if total > output_limit:
+                        buffers[key.data].extend(chunk[: output_limit - (total - len(chunk))])
                         raise OutputLimitExceeded(f"Command output exceeded {output_limit} bytes")
                     buffers[key.data].extend(chunk)
             process.wait(timeout=max(0, deadline - time.monotonic()))
-    except BaseException:
+    except BaseException as exc:
         _terminate_process_tree(process)
+        if isinstance(exc, (subprocess.TimeoutExpired, OutputLimitExceeded)):
+            exc.output = bytes(buffers["stdout"])
+            exc.stderr = bytes(buffers["stderr"])
         raise
     finally:
         for stream in (process.stdin, process.stdout, process.stderr):

@@ -159,7 +159,12 @@ def test_command_can_retry_timeout_with_explicit_total_budget(tmp_path: Path, mo
         }
     )
     progress: list[str] = []
-    outcomes = iter(["Command timed out after 0.03s", (0, "", "")])
+    outcomes = iter(
+        [
+            runners_module._CommandExecution(error="Command timed out after 0.03s"),
+            runners_module._CommandExecution(exit_code=0),
+        ]
+    )
     monkeypatch.setattr(runners_module, "_run_command", lambda *args: next(outcomes))
 
     result = run_command_constraint(

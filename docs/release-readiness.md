@@ -1,6 +1,6 @@
 # Release readiness
 
-This is the current release checklist, updated September 8, 2026 for v0.5.1.
+This is the current release checklist, updated September 8, 2026 for v0.5.2.
 The authoritative publication procedure is [RELEASE.md](../RELEASE.md).
 Historical v0.1 milestones are complete; they are not current release gates.
 
@@ -21,6 +21,21 @@ Historical v0.1 milestones are complete; they are not current release gates.
   the merged main commit; GitHub OIDC publishes that version with attestations.
 - Verify publication and a fresh public-index install afterward. Never replace
   an existing version, publish locally, or add long-lived registry tokens.
+
+## v0.5.2 environment recovery and retry evidence
+
+Regression tests cover missing-executable recovery with unchanged watched inputs,
+legacy cache entries, blocked dependents, explicit environment waivers, cache
+refresh, and the absence of cache writes during uncached and CI runs. Command,
+metric, and ratchet attempts retain output, exit codes, errors, and timing across
+success, failure, pending results, parser errors, and retry exhaustion. Timeout
+and output-overflow diagnostics remain bounded and redacted. Review cache and
+waiver identities include attempt evidence while ignoring volatile timing.
+
+Upgrade the runtime used by hooks, then use `constraintloop run --refresh` when
+fresh persisted evidence is needed. Historical attempts cannot be reconstructed.
+The existing retry exit-code default remains `[1]`; examples now set an explicit
+policy that avoids retrying assertion failures.
 
 ## v0.5.1 worktree isolation
 
