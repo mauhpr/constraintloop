@@ -160,7 +160,9 @@ def uninstall_command(adapter: str, project: Path, pre_push: bool) -> None:
         click.echo(f"{'Removed' if removed else 'No'} ConstraintLoop pre-push hook at {path}")
 
 
-def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -> None:
+def _run_phase(
+    project: Path, phase: Phase, json_output: bool, no_cache: bool, refresh: bool = False
+) -> None:
     root = _root(project)
     try:
         contract, _ = load_contract(root, include_local=phase != Phase.CI)
@@ -171,6 +173,7 @@ def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -
             root,
             contract,
             use_cache=not no_cache and phase != Phase.CI,
+            refresh_cache=refresh,
             allow_waivers=phase.allows_local_waivers,
             progress=None if json_output else lambda message: click.echo(message, err=True),
         ).run(phase)
@@ -189,10 +192,15 @@ def _run_phase(project: Path, phase: Phase, json_output: bool, no_cache: bool) -
 @click.option("--phase", type=click.Choice(["change", "stop", "push"]), default="stop")
 @click.option("--project", type=click.Path(path_type=Path), default=Path("."))
 @click.option("--json", "json_output", is_flag=True)
-@click.option("--no-cache", is_flag=True)
-def run_command(phase: str, project: Path, json_output: bool, no_cache: bool) -> None:
+@click.option("--no-cache", is_flag=True, help="Rerun without reading or writing cached evidence.")
+@click.option("--refresh", is_flag=True, help="Rerun and replace cached evidence.")
+def run_command(
+    phase: str, project: Path, json_output: bool, no_cache: bool, refresh: bool
+) -> None:
     """Run local gates for a lifecycle phase."""
-    _run_phase(project, Phase(phase), json_output, no_cache)
+    if no_cache and refresh:
+        raise click.UsageError("--refresh and --no-cache cannot be used together")
+    _run_phase(project, Phase(phase), json_output, no_cache, refresh)
 
 
 @main.command("ci")
@@ -643,6 +651,17 @@ def debug_command(constraint_id: str, project: Path) -> None:
         if latest.output_tail:
             click.echo("output tail:")
             click.echo(latest.output_tail)
+        if latest.attempts:
+            click.echo("command attempts:")
+            for attempt in latest.attempts:
+                click.echo(
+                    f"- attempt {attempt.attempt}: exit code {attempt.exit_code}; "
+                    f"{attempt.duration_ms:.0f}ms; started {attempt.started_at}"
+                )
+                if attempt.error:
+                    click.echo(attempt.error)
+                if attempt.output_tail:
+                    click.echo(attempt.output_tail)
         if latest.evaluator_calls:
             click.echo("evaluator calls:")
             for call in latest.evaluator_calls:
